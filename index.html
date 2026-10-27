@@ -13,10 +13,11 @@
   --accent: #0d6f6a;
   --accent-ink: #ffffff;
   --danger: #b3261e;
-  --c1: #2b68d8;
-  --c2: #c07a06;
-  --c3: #7648cc;
-  --c4: #c93a63;
+  --c1: linear-gradient(90deg, #1f5fd1 50%, #f08a1c 50%);
+  --c2: #7ed36b;
+  --c3: #0f4c9c;
+  --c4: #4fc3f0;
+  --c5: #f4c20d;
   --f-display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
   --f-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
   --f-num: "IBM Plex Mono", ui-monospace, Consolas, monospace;
@@ -25,14 +26,14 @@
   :root:not([data-theme="light"]) {
     --bg: #0f151b; --surface: #18212b; --ink: #e6edf3; --muted: #93a2b1; --line: #2a3643;
     --accent: #4fc4ba; --accent-ink: #06201e; --danger: #ff8a80;
-    --c1: #6f9dff; --c2: #e9a93a; --c3: #a98bf0; --c4: #f07a9a;
+    --c1: linear-gradient(90deg, #5b8dff 50%, #ff9f43 50%); --c2: #8fe07c; --c3: #3d7fd6; --c4: #6fd3f7; --c5: #ffd23f;
     color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
   --bg: #0f151b; --surface: #18212b; --ink: #e6edf3; --muted: #93a2b1; --line: #2a3643;
   --accent: #4fc4ba; --accent-ink: #06201e; --danger: #ff8a80;
-  --c1: #6f9dff; --c2: #e9a93a; --c3: #a98bf0; --c4: #f07a9a;
+  --c1: linear-gradient(90deg, #5b8dff 50%, #ff9f43 50%); --c2: #8fe07c; --c3: #3d7fd6; --c4: #6fd3f7; --c5: #ffd23f;
   color-scheme: dark;
 }
 
@@ -64,7 +65,7 @@ button { cursor: pointer; }
 .mon { display: flex; gap: 6px; justify-content: flex-end; margin-bottom: 4px; }
 
 /* Tarjetas */
-.tarjetas { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.tarjetas { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
 .tj { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .tj-nombre { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13px; min-width: 0; }
 .tj-nombre span:last-child { overflow-wrap: anywhere; }
@@ -291,8 +292,8 @@ td.cero { color: var(--muted); opacity: .6; }
     { id: 'regalos', nombre: 'Regalos', cats: [
       { id: 'regalos', nombre: 'Regalos' } ] }
   ];
-  var TARJETAS = ['t1', 't2', 't3', 't4'];
-  var NOMBRES_DEF = ['Visa', 'Mastercard', 'American Express', 'Diners Club'];
+  var TARJETAS = ['t1', 't2', 't3', 't4', 't5'];
+  var NOMBRES_DEF = ['BCP', 'IBK', 'BBVA', 'SIP', 'Mastercard'];
   var CAT_NOMBRE = {};
   GRUPOS.forEach(function (g) { g.cats.forEach(function (c) { CAT_NOMBRE[c.id] = c.nombre; }); });
 
@@ -462,7 +463,7 @@ td.cero { color: var(--muted); opacity: .6; }
     t.appendChild(h('thead', {}, trh));
 
     var tb = h('tbody', {});
-    var totTj = [0, 0, 0, 0];
+    var totTj = TARJETAS.map(function () { return 0; });
     GRUPOS.forEach(function (g) {
       var fila = h('tr', { class: 'grupo' }, h('td', { text: g.nombre }));
       var totG = 0;
