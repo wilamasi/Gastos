@@ -18,6 +18,8 @@
   --c3: #0f4c9c;
   --c4: #4fc3f0;
   --c5: #f4c20d;
+  --c6: #742284;
+  --c7: #00b2a9;
   --f-display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
   --f-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
   --f-num: "IBM Plex Mono", ui-monospace, Consolas, monospace;
@@ -26,14 +28,14 @@
   :root:not([data-theme="light"]) {
     --bg: #0f151b; --surface: #18212b; --ink: #e6edf3; --muted: #93a2b1; --line: #2a3643;
     --accent: #4fc4ba; --accent-ink: #06201e; --danger: #ff8a80;
-    --c1: linear-gradient(90deg, #5b8dff 50%, #ff9f43 50%); --c2: #8fe07c; --c3: #3d7fd6; --c4: #6fd3f7; --c5: #ffd23f;
+    --c1: linear-gradient(90deg, #5b8dff 50%, #ff9f43 50%); --c2: #8fe07c; --c3: #3d7fd6; --c4: #6fd3f7; --c5: #ffd23f; --c6: #c77dde; --c7: #3fe0d4;
     color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
   --bg: #0f151b; --surface: #18212b; --ink: #e6edf3; --muted: #93a2b1; --line: #2a3643;
   --accent: #4fc4ba; --accent-ink: #06201e; --danger: #ff8a80;
-  --c1: linear-gradient(90deg, #5b8dff 50%, #ff9f43 50%); --c2: #8fe07c; --c3: #3d7fd6; --c4: #6fd3f7; --c5: #ffd23f;
+  --c1: linear-gradient(90deg, #5b8dff 50%, #ff9f43 50%); --c2: #8fe07c; --c3: #3d7fd6; --c4: #6fd3f7; --c5: #ffd23f; --c6: #c77dde; --c7: #3fe0d4;
   color-scheme: dark;
 }
 
@@ -65,7 +67,7 @@ button { cursor: pointer; }
 .mon { display: flex; gap: 6px; justify-content: flex-end; margin-bottom: 4px; }
 
 /* Tarjetas */
-.tarjetas { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+.tarjetas { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; }
 .tj { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .tj-nombre { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13px; min-width: 0; }
 .tj-nombre span:last-child { overflow-wrap: anywhere; }
@@ -292,8 +294,9 @@ td.cero { color: var(--muted); opacity: .6; }
     { id: 'regalos', nombre: 'Regalos', cats: [
       { id: 'regalos', nombre: 'Regalos' } ] }
   ];
-  var TARJETAS = ['t1', 't2', 't3', 't4', 't5'];
-  var NOMBRES_DEF = ['BCP', 'IBK', 'BBVA', 'SIP', 'Mastercard'];
+  var TARJETAS = ['t1', 't2', 't3', 't4', 't5', 't6', 't7'];
+  var NOMBRES_DEF = ['BCP', 'IBK', 'BBVA', 'SIP', 'Mastercard', 'Yape', 'Plin'];
+  var SOLO_SOLES = ['t6', 't7']; // Yape y Plin solo admiten soles
   var CAT_NOMBRE = {};
   GRUPOS.forEach(function (g) { g.cats.forEach(function (c) { CAT_NOMBRE[c.id] = c.nombre; }); });
 
@@ -672,11 +675,19 @@ td.cero { color: var(--muted); opacity: .6; }
   $('btnHoy').addEventListener('click', function () { state.inicio = inicioPeriodo(new Date()); state.diaSel = null; render(); });
   $('btnVerTodo').addEventListener('click', function () { state.diaSel = null; render(); });
 
+  function ajustarMoneda() {
+    var solo = SOLO_SOLES.indexOf($('fTarjeta').value) >= 0;
+    $('fMoneda').querySelector('option[value="USD"]').disabled = solo;
+    if (solo) $('fMoneda').value = 'PEN';
+  }
+  $('fTarjeta').addEventListener('change', ajustarMoneda);
+
   document.querySelector('.mon').addEventListener('click', function (ev) {
     var b = ev.target.closest('.chip');
     if (!b) return;
     state.moneda = b.getAttribute('data-mon');
     $('fMoneda').value = state.moneda;
+    ajustarMoneda();
     render();
   });
 
@@ -750,6 +761,7 @@ td.cero { color: var(--muted); opacity: .6; }
     if (!$('fFecha').value) $('fFecha').value = ymd(new Date());
     $('fMoneda').value = state.moneda;
     renderNombres();
+    ajustarMoneda();
     render();
     conectar();
   })();
