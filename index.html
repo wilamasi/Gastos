@@ -217,7 +217,7 @@ td.cero { color: var(--muted); opacity: .6; }
           <input id="fFecha" type="date" required>
         </div>
         <div class="campo">
-          <label for="fTarjeta">Tarjeta</label>
+          <label for="fTarjeta">Tarjeta/efectivo</label>
           <select id="fTarjeta"></select>
         </div>
         <div class="campo ancho">
@@ -242,7 +242,7 @@ td.cero { color: var(--muted); opacity: .6; }
 
   <section class="panel">
     <div class="panel-head">
-      <h2>Tipo de gasto por tarjeta</h2>
+      <h2>Tipo de gasto por tarjeta/efectivo</h2>
       <span class="hint">Sumas del periodo seleccionado</span>
     </div>
     <div class="scroll"><table id="matriz"></table></div>
@@ -487,7 +487,7 @@ td.cero { color: var(--muted); opacity: .6; }
     });
     t.appendChild(tb);
 
-    var pie = h('tr', {}, h('td', { text: 'Total por tarjeta' }));
+    var pie = h('tr', {}, h('td', { text: 'Total por tarjeta/efectivo' }));
     totTj.forEach(function (s) { pie.appendChild(celda(s)); });
     pie.appendChild(celda(totTj.reduce(function (a, b) { return a + b; }, 0)));
     t.appendChild(h('tfoot', {}, pie));
@@ -651,7 +651,7 @@ td.cero { color: var(--muted); opacity: .6; }
 
   $('btnExport').addEventListener('click', function () {
     function q(v) { return '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"'; }
-    var filas = [['Fecha', 'Monto', 'Moneda', 'Tarjeta', 'Tipo de gasto', 'Nota'].map(q).join(',')];
+    var filas = [['Fecha', 'Monto', 'Moneda', 'Tarjeta/efectivo', 'Tipo de gasto', 'Nota'].map(q).join(',')];
     state.gastos.slice().sort(function (a, b) { return a.fecha < b.fecha ? -1 : a.fecha > b.fecha ? 1 : 0; }).forEach(function (g) {
       var i = TARJETAS.indexOf(g.tarjeta);
       filas.push([g.fecha, Number(g.monto).toFixed(2), monedaDe(g), state.nombres[i] || g.tarjeta, CAT_NOMBRE[g.cat] || g.cat, g.nota].map(q).join(','));
