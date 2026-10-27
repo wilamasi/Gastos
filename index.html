@@ -61,6 +61,7 @@ button { cursor: pointer; }
 .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; padding: 9px 16px; }
 .total { text-align: right; display: flex; flex-direction: column; gap: 2px; }
 .total .num { font-size: clamp(26px, 5vw, 38px); font-weight: 500; line-height: 1.05; }
+.mon { display: flex; gap: 6px; justify-content: flex-end; margin-bottom: 4px; }
 
 /* Tarjetas */
 .tarjetas { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
@@ -130,6 +131,7 @@ td.cero { color: var(--muted); opacity: .6; }
 .borrar.confirma { font-weight: 600; }
 .vacio { color: var(--muted); padding: 20px 0; margin: 0; text-align: center; }
 .chip { border: 1px solid var(--line); background: var(--bg); border-radius: 999px; padding: 4px 10px; font-size: 12px; }
+.chip[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
 
 .login { position: fixed; inset: 0; background: var(--bg); display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 10; }
 .login form { display: flex; flex-direction: column; gap: 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 24px; width: 100%; max-width: 360px; }
@@ -140,6 +142,7 @@ td.cero { color: var(--muted); opacity: .6; }
   .cols { grid-template-columns: minmax(0, 1fr); }
   .tarjetas { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .total { text-align: left; }
+  .mon { justify-content: flex-start; }
 }
 @media (max-width: 460px) {
   .panel { padding: 14px; }
@@ -165,8 +168,13 @@ td.cero { color: var(--muted); opacity: .6; }
       </div>
     </div>
     <div class="total">
+      <div class="mon" role="group" aria-label="Moneda">
+        <button class="chip" type="button" data-mon="PEN">Soles</button>
+        <button class="chip" type="button" data-mon="USD">Dólares</button>
+      </div>
       <span class="eyebrow">Total del periodo</span>
-      <span class="num" id="totalPeriodo">$0.00</span>
+      <span class="num" id="totalPeriodo">S/ 0.00</span>
+      <span class="hint" id="totalOtra"></span>
       <span class="hint" id="estado">Conectando…</span>
     </div>
   </header>
@@ -195,6 +203,13 @@ td.cero { color: var(--muted); opacity: .6; }
           <input id="fMonto" type="number" inputmode="decimal" step="0.01" min="0.01" placeholder="0.00" required>
         </div>
         <div class="campo">
+          <label for="fMoneda">Moneda</label>
+          <select id="fMoneda">
+            <option value="PEN">Soles (S/)</option>
+            <option value="USD">Dólares ($)</option>
+          </select>
+        </div>
+        <div class="campo">
           <label for="fFecha">Fecha</label>
           <input id="fFecha" type="date" required>
         </div>
@@ -202,7 +217,7 @@ td.cero { color: var(--muted); opacity: .6; }
           <label for="fTarjeta">Tarjeta</label>
           <select id="fTarjeta"></select>
         </div>
-        <div class="campo">
+        <div class="campo ancho">
           <label for="fCat">Tipo de gasto</label>
           <select id="fCat"></select>
         </div>
@@ -287,10 +302,11 @@ td.cero { color: var(--muted); opacity: .6; }
   var fmtDiaAnio = new Intl.DateTimeFormat('es', { day: 'numeric', month: 'short', year: 'numeric' });
   var fmtMes = new Intl.DateTimeFormat('es', { month: 'short' });
 
-  function dinero(n) { return '$' + fmtNum.format(n || 0); }
+  function simbolo(mon) { return (mon || state.moneda) === 'PEN' ? 'S/ ' : '$'; }
+  function dinero(n, mon) { return simbolo(mon) + fmtNum.format(n || 0); }
   function dineroCorto(n) {
-    if (n >= 10000) return '$' + (n / 1000).toFixed(1) + 'k';
-    return '$' + Math.round(n);
+    if (n >= 10000) return simbolo() + (n / 1000).toFixed(1) + 'k';
+    return simbolo() + Math.round(n);
   }
   function pad(n) { return (n < 10 ? '0' : '') + n; }
   function ymd(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
@@ -326,11 +342,13 @@ td.cero { color: var(--muted); opacity: .6; }
     nombres: NOMBRES_DEF.slice(),
     inicio: inicioPeriodo(hoy),
     diaSel: null,
+    moneda: 'PEN', // moneda que se muestra: 'PEN' | 'USD'
     modo: 'cargando'
   };
   var store;
 
   /* ---------- Calculos ---------- */
+  function monedaDe(g) { return g.moneda === 'PEN' ? 'PEN' : 'USD'; }
   function gastosPeriodo() {
     var a = ymd(state.inicio), b = ymd(finPeriodo(state.inicio));
     return state.gastos.filter(function (g) { return g.fecha >= a && g.fecha <= b; });
@@ -339,12 +357,18 @@ td.cero { color: var(--muted); opacity: .6; }
 
   /* ---------- Render ---------- */
   function render() {
-    var gp = gastosPeriodo();
+    var todos = gastosPeriodo();
+    var otra = state.moneda === 'PEN' ? 'USD' : 'PEN';
+    var gp = todos.filter(function (g) { return monedaDe(g) === state.moneda; });
     var total = suma(gp);
     var ini = state.inicio, fin = finPeriodo(ini);
 
     $('periodoFechas').textContent = fmtDia.format(ini) + ' – ' + fmtDiaAnio.format(fin);
     $('totalPeriodo').textContent = dinero(total);
+    $('totalOtra').textContent = 'Además: ' + dinero(suma(todos.filter(function (g) { return monedaDe(g) === otra; })), otra);
+    document.querySelectorAll('.mon .chip').forEach(function (b) {
+      b.setAttribute('aria-pressed', b.getAttribute('data-mon') === state.moneda ? 'true' : 'false');
+    });
     $('estado').textContent =
       state.modo === 'cargando' ? 'Conectando…' :
       state.modo === 'nube' ? gp.length + (gp.length === 1 ? ' gasto' : ' gastos') + ' · guardado en tu cuenta' :
@@ -555,7 +579,7 @@ td.cero { color: var(--muted); opacity: .6; }
     if (!sb || !uid) return Promise.resolve();
     return Promise.all([traerGastos(0, []), sb.from('ajustes').select('tarjetas').maybeSingle()]).then(function (r) {
       state.gastos = r[0].map(function (x) {
-        return { id: x.id, fecha: String(x.fecha || ''), monto: Number(x.monto) || 0, tarjeta: x.tarjeta, cat: x.cat, nota: x.nota ? String(x.nota) : '', creado: x.creado };
+        return { id: x.id, fecha: String(x.fecha || ''), monto: Number(x.monto) || 0, tarjeta: x.tarjeta, cat: x.cat, nota: x.nota ? String(x.nota) : '', moneda: x.moneda, creado: x.creado };
       });
       var t = r[1] && r[1].data && r[1].data.tarjetas;
       if (Array.isArray(t) && t.length) state.nombres = normNombres(t);
@@ -566,7 +590,7 @@ td.cero { color: var(--muted); opacity: .6; }
 
   store = {
     add: function (g) {
-      return sb.from('gastos').insert({ fecha: g.fecha, monto: g.monto, tarjeta: g.tarjeta, cat: g.cat, nota: g.nota, creado: g.creado })
+      return sb.from('gastos').insert({ fecha: g.fecha, monto: g.monto, moneda: g.moneda, tarjeta: g.tarjeta, cat: g.cat, nota: g.nota, creado: g.creado })
         .then(chk).then(cargar);
     },
     remove: function (id) {
@@ -623,10 +647,10 @@ td.cero { color: var(--muted); opacity: .6; }
 
   $('btnExport').addEventListener('click', function () {
     function q(v) { return '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"'; }
-    var filas = [['Fecha', 'Monto', 'Tarjeta', 'Tipo de gasto', 'Nota'].map(q).join(',')];
+    var filas = [['Fecha', 'Monto', 'Moneda', 'Tarjeta', 'Tipo de gasto', 'Nota'].map(q).join(',')];
     state.gastos.slice().sort(function (a, b) { return a.fecha < b.fecha ? -1 : a.fecha > b.fecha ? 1 : 0; }).forEach(function (g) {
       var i = TARJETAS.indexOf(g.tarjeta);
-      filas.push([g.fecha, Number(g.monto).toFixed(2), state.nombres[i] || g.tarjeta, CAT_NOMBRE[g.cat] || g.cat, g.nota].map(q).join(','));
+      filas.push([g.fecha, Number(g.monto).toFixed(2), monedaDe(g), state.nombres[i] || g.tarjeta, CAT_NOMBRE[g.cat] || g.cat, g.nota].map(q).join(','));
     });
     var blob = new Blob(['﻿' + filas.join('\r\n')], { type: 'text/csv;charset=utf-8' });
     var a = document.createElement('a');
@@ -646,6 +670,14 @@ td.cero { color: var(--muted); opacity: .6; }
   $('btnNext').addEventListener('click', function () { moverPeriodo(1); });
   $('btnHoy').addEventListener('click', function () { state.inicio = inicioPeriodo(new Date()); state.diaSel = null; render(); });
   $('btnVerTodo').addEventListener('click', function () { state.diaSel = null; render(); });
+
+  document.querySelector('.mon').addEventListener('click', function (ev) {
+    var b = ev.target.closest('.chip');
+    if (!b) return;
+    state.moneda = b.getAttribute('data-mon');
+    $('fMoneda').value = state.moneda;
+    render();
+  });
 
   $('cal').addEventListener('click', function (ev) {
     var b = ev.target.closest('.dia');
@@ -678,16 +710,17 @@ td.cero { color: var(--muted); opacity: .6; }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) { mensaje('Elige la fecha del gasto.', true); $('fFecha').focus(); return; }
     if (!store) { mensaje('Todavía se están cargando tus datos. Inténtalo en un momento.', true); return; }
     var g = {
-      fecha: fecha, monto: monto,
+      fecha: fecha, monto: monto, moneda: $('fMoneda').value === 'USD' ? 'USD' : 'PEN',
       tarjeta: $('fTarjeta').value, cat: $('fCat').value,
       nota: $('fNota').value.trim().slice(0, 120),
       creado: new Date().toISOString()
     };
     var boton = ev.target.querySelector('button[type="submit"]');
     boton.disabled = true;
+    state.moneda = g.moneda; // mostrar la moneda del gasto recien guardado
     store.add(g).then(function () {
       $('fMonto').value = ''; $('fNota').value = '';
-      mensaje('Guardado: ' + dinero(monto) + ' en ' + CAT_NOMBRE[g.cat] + '.');
+      mensaje('Guardado: ' + dinero(monto, g.moneda) + ' en ' + CAT_NOMBRE[g.cat] + '.');
       var ini = inicioPeriodo(deYmd(fecha));
       if (ymd(ini) !== ymd(state.inicio)) { state.inicio = ini; state.diaSel = null; render(); }
       $('fMonto').focus();
@@ -714,6 +747,7 @@ td.cero { color: var(--muted); opacity: .6; }
       sel.appendChild(og);
     });
     if (!$('fFecha').value) $('fFecha').value = ymd(new Date());
+    $('fMoneda').value = state.moneda;
     renderNombres();
     render();
     conectar();
