@@ -378,24 +378,28 @@ td.cero { color: var(--muted); opacity: .6; }
       state.modo === 'nube' ? gp.length + (gp.length === 1 ? ' gasto' : ' gastos') + ' · guardado en tu cuenta' :
       gp.length + (gp.length === 1 ? ' gasto' : ' gastos') + ' · sin conexión';
 
-    renderTarjetas(gp, total);
+    renderTarjetas(gp, total, todos);
     renderCalendario(gp, total);
     renderMatriz(gp);
     renderLista(gp);
   }
 
-  function renderTarjetas(gp, total) {
+  function renderTarjetas(gp, total, todos) {
     var cont = $('tarjetas');
     cont.textContent = '';
+    // Yape y Plin siempre se muestran en soles, aunque se esten viendo dolares
+    var soles = todos.filter(function (g) { return monedaDe(g) === 'PEN'; });
     TARJETAS.forEach(function (t, i) {
-      var s = suma(gp.filter(function (g) { return g.tarjeta === t; }));
-      var pct = total > 0 ? (s / total) * 100 : 0;
+      var solo = SOLO_SOLES.indexOf(t) >= 0;
+      var base = solo ? soles : gp, tot = solo ? suma(soles) : total;
+      var s = suma(base.filter(function (g) { return g.tarjeta === t; }));
+      var pct = tot > 0 ? (s / tot) * 100 : 0;
       cont.appendChild(
         h('div', { class: 'tj', style: '--c: var(--c' + (i + 1) + ')' },
           h('div', { class: 'tj-nombre' }, h('span', { class: 'dot' }), h('span', { text: state.nombres[i] })),
-          h('span', { class: 'num', text: dinero(s) }),
+          h('span', { class: 'num', text: dinero(s, solo ? 'PEN' : null) }),
           h('div', { class: 'barra' }, h('i', { style: 'width:' + pct.toFixed(1) + '%' })),
-          h('small', { text: total > 0 ? Math.round(pct) + '% del periodo' : 'Sin gastos' })
+          h('small', { text: tot > 0 ? Math.round(pct) + '% del periodo' : 'Sin gastos' })
         ));
     });
   }
