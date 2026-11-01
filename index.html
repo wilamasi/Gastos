@@ -309,6 +309,14 @@ body::after { right: 0; transform: scaleY(-1); }
 .capa-nombre .corto { display: none; }
 .capa-f small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .capa-f small.origen { color: var(--ink); font-weight: 500; }
+.capa-f small.dato.excede { color: var(--danger); font-weight: 600; }
+.barras { display: flex; gap: 2px; cursor: default; }
+.barras .col { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; text-align: center; }
+.barras .pila { height: 64px; display: flex; flex-direction: column; justify-content: flex-end; gap: 2px; padding-inline: 12%; border-bottom: 1px solid var(--line); }
+.barras i { display: block; border-radius: 4px 4px 0 0; background: var(--b); }
+.barras i.p { background: color-mix(in srgb, var(--b) 28%, transparent); }
+.barras .col > span { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.barras .col.hoy > span { color: var(--ink); font-weight: 600; }
 .hint.cerca { color: var(--warn); font-weight: 600; }
 .hint.excede { color: var(--danger); font-weight: 600; }
 .capa-f.excede { --c: var(--danger); }
@@ -387,6 +395,13 @@ body::after { right: 0; transform: scaleY(-1); }
 }
 @media (max-width: 360px) {
   #pFilas li { font-size: 12.5px; gap: 8px; }
+  .capa-f { padding: 14px 8px 10px; }
+  .capa-nombre { font-size: 12px; }
+  .capa-f small { font-size: 11px; }
+  .capa-f .ficha-pie { padding: 6px 8px; }
+  .capa-f .ficha-pie .num { font-size: 13px; }
+  .barras { gap: 0; }
+  .barras .col > span { font-size: 10px; }
 }
 @media (max-width: 460px) {
   .ranking li { grid-template-columns: 16px minmax(0, 1fr) 96px 50px; gap: 8px; padding: 8px 4px; }
@@ -458,7 +473,7 @@ body::after { right: 0; transform: scaleY(-1); }
     </div>
     <section class="panel">
       <div class="panel-head">
-        <h2>Gasto del periodo por capa</h2>
+        <h2>Evolución por capa</h2>
         <span class="hint" id="rPeriodo"></span>
       </div>
       <div class="capas" id="rCapas"></div>
@@ -764,7 +779,7 @@ body::after { right: 0; transform: scaleY(-1); }
       { id: 'regalos', nombre: 'Regalos' },
       { id: 'intereses', nombre: 'Intereses' },
       { id: 'sin_detalle', nombre: 'Sin detalle' } ] },
-    { capa: 4, nombre: 'Anual o irregular', cats: [
+    { capa: 4, nombre: 'Anual o irregular', corto: 'Anual o irreg.', cats: [
       { id: 'gimnasio', nombre: 'Gimnasio y suplementos' },
       { id: 'seguros_anual', nombre: 'Seguros anuales' },
       { id: 'mantenimiento', nombre: 'Mantenimiento y repuestos de moto' },
@@ -828,6 +843,8 @@ body::after { right: 0; transform: scaleY(-1); }
   var LOCAL = /[?&]local\b/.test(location.search); // index.html?local lee datos-locales.json (no se sube a GitHub)
   var CAT_NOMBRE = {}, CAPA_DE_CAT = {};
   GRUPOS.forEach(function (g) { g.cats.forEach(function (c) { CAT_NOMBRE[c.id] = c.nombre; CAPA_DE_CAT[c.id] = g.capa; }); });
+  // Barras: mismo color de cada capa, en solido; el verde se oscurece para leerse sobre fondo claro
+  var BARRA_CAPA = { 1: 'color-mix(in srgb, var(--c2) 75%, var(--ink))', 2: 'var(--c1s)', 3: 'var(--c3)', 4: 'var(--warn)' };
   var COLOR_CAPA = { 1: 'var(--c2)', 2: 'var(--c1)', 3: 'var(--c3)', 4: 'var(--warn)' }; // el color de la tarjeta de cada capa
   function nombreCapa(g) { return g.capa ? 'Capa ' + g.capa + ' · ' + g.nombre : g.nombre; }
 
@@ -1343,6 +1360,17 @@ body::after { right: 0; transform: scaleY(-1); }
     });
   }
 
+  // Ultimos 6 periodos con su gasto por capa. Se salta los anteriores a tus primeros datos, porque saldrian incompletos
+  function periodosCapas(ini) {
+    var inicio = state.gastos.reduce(function (m, g) { var f = fechaCiclo(g); return !m || f < m ? f : m; }, ''), r = [];
+    for (var k = 5; k >= 0; k--) {
+      var i = new Date(ini.getFullYear(), ini.getMonth() - k, CORTE);
+      if (k && ymd(i) < inicio) continue;
+      r.push({ ini: i, capas: porCapaEntre(ymd(i), ymd(finPeriodo(i))) });
+    }
+    return r;
+  }
+
   function renderResumen(pend) {
     var c = state.config, hoyKey = ymd(new Date()), k;
     var p = presupuesto(), fin = finPeriodo(p.ini), pm = promMensual();
@@ -1434,15 +1462,30 @@ body::after { right: 0; transform: scaleY(-1); }
     $('rPeriodo').textContent = fmtDia.format(p.ini) + ' – ' + fmtDia.format(fin);
     var cont = $('rCapas');
     cont.textContent = '';
+    var hist = periodosCapas(p.ini), proyCapa = { 1: proy1, 2: proy2, 3: proy3 };
+    // Una sola escala para las 4 capas: asi las barras se pueden comparar entre fichas
+    var maxBarra = Math.max.apply(null, hist.map(function (x) { return Math.max(x.capas[1], x.capas[2], x.capas[3], x.capas[4]); }).concat([proy1, proy2, proy3])) || 1;
+    function alto(v) { return (v / maxBarra * 100).toFixed(1) + '%'; }
+    function barras(capa) {
+      return h.apply(null, ['div', { class: 'barras' }].concat(hist.map(function (x, n) {
+        var v = x.capas[capa], hoyP = n === hist.length - 1, falta = hoyP ? Math.max(0, (proyCapa[capa] || 0) - v) : 0;
+        var mes = fmtMes.format(x.ini).replace('.', ''), txt = mes + ': ' + dineroCorto(v);
+        return h('div', { class: 'col' + (hoyP ? ' hoy' : ''), role: 'img', 'aria-label': txt, 'data-txt': txt },
+          h('div', { class: 'pila' }, falta ? h('i', { class: 'p', style: 'height:' + alto(falta) }) : null, h('i', { class: 'b', style: 'height:' + alto(v) })),
+          h('span', { text: mes.slice(0, 3) }));
+      })));
+    }
     GRUPOS.forEach(function (g) {
       if (!g.capa) return;
       var s = porCapa[g.capa];
+      var base = g.capa === 4 ? 'En Reserva: ' + dineroCorto(saldoDe('reserva')) : 'Proyección: ' + dineroCorto(proyCapa[g.capa]);
       var pct = g.capa === 3 ? (tope > 0 ? s / tope * 100 : 0) : (total > 0 ? s / total * 100 : 0);
       var nota = g.capa === 3 ? Math.round(pct) + '% de ' + dineroCorto(tope) : Math.round(pct) + '% del periodo';
-      cont.appendChild(h('div', { class: 'tj ficha capa-f' + (g.capa === 3 && s > tope ? ' excede' : ''), style: '--c: ' + COLOR_CAPA[g.capa] },
+      cont.appendChild(h('div', { class: 'tj ficha capa-f' + (g.capa === 3 && s > tope ? ' excede' : ''), style: '--c: ' + COLOR_CAPA[g.capa] + '; --b: ' + BARRA_CAPA[g.capa] },
         h('span', { class: 'rol-tag', text: 'Capa ' + g.capa }),
         h('b', { class: 'capa-nombre' }, h('span', { class: 'largo', text: g.nombre }), h('span', { class: 'corto', text: g.corto || g.nombre })),
-        h('div', { class: 'barra' }, h('i', { style: 'width:' + Math.min(100, pct).toFixed(1) + '%' })),
+        barras(g.capa),
+        h('small', { class: 'dato' + (g.capa === 3 && proy3 > tope ? ' excede' : ''), 'data-base': base, text: base }),
         h('small', { text: nota }),
         origen(g.capa) ? h('small', { class: 'origen', text: origen(g.capa) }) : null,
         h('div', { class: 'ficha-pie' }, h('span', { class: 'num', text: dinero(s) }))));
@@ -1464,6 +1507,14 @@ body::after { right: 0; transform: scaleY(-1); }
     }
     filas($('rSobrante'), rows);
   }
+
+  function datoBarra(ev) {
+    var col = ev.target.closest('.col'), d = col && col.closest('.capa-f').querySelector('.dato');
+    if (d) d.textContent = ev.type === 'mouseout' ? d.getAttribute('data-base') : col.getAttribute('data-txt');
+  }
+  $('rCapas').addEventListener('mouseover', datoBarra);
+  $('rCapas').addEventListener('mouseout', datoBarra);
+  $('rCapas').addEventListener('click', datoBarra);
 
   function renderFichas(pend) {
     var hoyKey = ymd(new Date());
