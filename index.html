@@ -211,15 +211,32 @@ td.cero { color: var(--muted); opacity: .6; }
 .rk-var.baja { color: var(--ok); }
 .rk-var.igual, .rk-var.nuevo { color: var(--muted); }
 .pop-chico { width: min(330px, calc(100vw - 32px)); }
+#c4Cuerpo { overflow-y: auto; min-height: 0; }
+.c4-nav { display: flex; align-items: center; gap: 6px; padding: 10px 14px 8px; font-weight: 600; }
+.c4-nav .btn { min-height: 32px; padding: 2px 10px; }
+.c4-nav .num { margin-left: auto; font-size: 13px; white-space: nowrap; }
+.c4-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; padding: 0 14px; }
+.c4-c { --h: var(--muted); --p: 0%; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; padding: 6px; border: 1px solid var(--line); border-radius: 8px; background: color-mix(in srgb, var(--h) var(--p), var(--surface)); color: var(--ink); text-align: left; white-space: nowrap; }
+.c4-c b { font-size: 12px; font-weight: 600; text-transform: capitalize; }
+.c4-c .num { font-size: 13px; }
+.c4-c small { font-size: 11px; color: var(--muted); }
+.c4-c:disabled { color: var(--muted); cursor: default; }
+.c4-c.lejos { --h: var(--accent); }
+.c4-c.cerca { --h: var(--warn); }
+.c4-c.atraso { --h: var(--danger); }
+.c4-c.atraso small { color: var(--danger); font-weight: 600; }
+.c4-c.hoy { border-color: var(--ink); }
+.c4-c.sel { outline: 2px solid var(--h); outline-offset: -1px; }
+.c4-leyenda { display: flex; gap: 10px; padding: 8px 14px 0; font-size: 11px; color: var(--muted); white-space: nowrap; }
+.c4-leyenda span { display: flex; align-items: center; gap: 4px; }
+#c4Lista { overflow: visible; }
 #c4Lista li { grid-template-columns: 52px minmax(0, 1fr) auto; }
-#c4Lista li.c4-sec, #c4Lista li.c4-anio { grid-template-columns: minmax(0, 1fr) auto; }
+#c4Lista li.c4-sec { grid-template-columns: minmax(0, 1fr) auto; }
 #c4Lista li.c4-sec { padding-block: 12px 8px; font-size: 14px; font-weight: 600; white-space: nowrap; border-bottom: 2px solid var(--line); }
-#c4Lista li.c4-anio { padding-block: 8px 4px; color: var(--muted); font-size: 13px; font-weight: 600; }
 #c4Lista li.c4-vacio { display: block; color: var(--muted); font-size: 13px; }
 #c4Lista .d b, #c4Lista .d span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #c4Lista .num { font-size: 13px; }
 #c4Lista .d b { font-size: 14px; }
-#c4Lista .c4-cerca { color: var(--warn); font-weight: 600; }
 #c4Lista .c4-atraso { color: var(--danger); font-weight: 600; }
 .ver-capa4 { min-height: 32px; padding: 4px 6px; font-size: 13px; white-space: nowrap; }
 .pop-ancho { width: min(620px, calc(100vw - 32px)); }
@@ -715,7 +732,7 @@ body::after { right: 0; transform: scaleY(-1); }
       <h2 id="c4Titulo">Calendario de capa 4</h2>
       <button class="pop-cerrar" id="c4Cerrar" type="button" aria-label="Cerrar">×</button>
     </div>
-    <ul class="lista" id="c4Lista"></ul>
+    <div id="c4Cuerpo"></div>
   </div>
 
   <div class="pop pop-chico" id="popRecibir" role="dialog" aria-labelledby="prTitulo" hidden>
@@ -933,7 +950,8 @@ body::after { right: 0; transform: scaleY(-1); }
     cat: null, // categoria en detalle: resalta en Gastos solo esa categoria
     capaDe: null, // { t, ini }: ventana con lo gastado por capa con Yape o Plin
     verLista: false, // ventana con todos los gastos del periodo
-    verCapa4: false, // ventana con lo programado y el historial de la capa 4
+    verCapa4: false, // ventana con el calendario de la capa 4
+    c4Anio: 0, c4Ciclo: null, // año a la vista y ciclo tocado ('2027-01': el que empieza en enero)
     recibir: null, // 'yape' o 'plin': ventana para registrar lo que llega de la Cuenta sueldo
     pagados: {}, // estados de cuenta pagados antes de su fecha: 'tarjeta|fechaDePago' -> dia del pago
     capa: 0, // filtro de la pestaña Gastos: 0 = todas
@@ -1921,47 +1939,68 @@ body::after { right: 0; transform: scaleY(-1); }
       h('span', { class: 'num', text: dinero(por.reduce(function (s, v) { return s + v; }, 0), 'PEN') })));
   }
 
-  // Ventana de capa 4: lo programado primero y luego lo gastado en los ultimos 2 años, agrupado por año
+  // Calendario de capa 4: una casilla por ciclo, con lo gastado (2 años atras) y lo programado (2 años adelante).
+  // Un previsto que solo indica el mes cae en el ciclo que empieza ese mes; uno atrasado, en el ciclo actual
   function renderPopCapa4() {
     $('popCapa4').hidden = !state.verCapa4;
     if (!state.verCapa4) return;
-    var ul = $('c4Lista'), hoyD = new Date();
-    var cerca = new Date(hoyD.getFullYear(), hoyD.getMonth() + 3, hoyD.getDate());
-    var desde = ymd(new Date(hoyD.getFullYear() - 2, hoyD.getMonth(), hoyD.getDate()));
-    ul.textContent = '';
-    function cabecera(cls, txt, arr) {
-      return h('li', { class: cls }, h('span', { text: txt }),
-        h('span', { class: 'num', text: dinero(arr.reduce(function (t, f) { return t + f.monto; }, 0)) }));
-    }
-    function seccion(titulo, vacio, arr) {
-      ul.appendChild(cabecera('c4-sec', titulo, arr));
-      if (!arr.length) ul.appendChild(h('li', { class: 'c4-vacio', text: vacio }));
-      var anio;
-      arr.forEach(function (f) {
-        var y = f.d.getFullYear();
-        if (y !== anio) {
-          anio = y;
-          ul.appendChild(cabecera('c4-anio', String(y), arr.filter(function (o) { return o.d.getFullYear() === y; })));
-        }
+    var ini = inicioPeriodo(new Date()), actual = ymd(ini).slice(0, 7), ciclos = {};
+    var cerca = ymd(new Date(ini.getFullYear(), ini.getMonth() + 3, 1)).slice(0, 7);
+    var desde = ymd(new Date(ini.getFullYear() - 2, ini.getMonth(), CORTE));
+    function poner(k, f) { (ciclos[k] = ciclos[k] || []).push(f); }
+    function sumar(arr) { return arr.reduce(function (t, f) { return t + f.monto; }, 0); }
+    comprasProgramadas().forEach(function (c) {
+      poner(c.atraso ? actual : ymd(c.x.prox.length > 7 ? inicioPeriodo(c.d) : c.d).slice(0, 7), {
+        fecha: c.x.prox.length > 7 ? fmtDia.format(c.d) : fmtMes.format(c.d).replace('.', ''), nombre: c.x.nombre,
+        det: c.atraso ? textoAtraso(c.x) : 'Cada ' + c.x.meses + ' meses', monto: conv(c.x.monto, 'PEN'), prog: true, atraso: c.atraso });
+    });
+    state.gastos.filter(function (g) { return CAPA_DE_CAT[g.cat] === 4 && fechaCiclo(g) >= desde; })
+      .sort(function (a, b) { return fechaCiclo(a) < fechaCiclo(b) ? -1 : 1; })
+      .forEach(function (g) {
+        var d = deYmd(fechaCiclo(g));
+        poner(ymd(inicioPeriodo(d)).slice(0, 7), { fecha: fmtDia.format(d), nombre: CAT_NOMBRE[g.cat],
+          det: state.nombres[TARJETAS.indexOf(g.tarjeta)] + (g.nota ? ' · ' + g.nota : ''), monto: conv(Number(g.monto) || 0, monedaDe(g)) });
+      });
+    var claves = Object.keys(ciclos).sort(), anio = state.c4Anio;
+    var primero = Math.min(ini.getFullYear(), +(claves[0] || actual).slice(0, 4));
+    var ultimo = Math.max(ini.getFullYear(), +(claves[claves.length - 1] || actual).slice(0, 4));
+    var delAnio = [], m;
+    for (m = 1; m <= 12; m++) delAnio.push(ciclos[anio + '-' + pad(m)] || []);
+    var maxAnio = Math.max.apply(null, delAnio.map(sumar)) || 1;
+    var grid = h('div', { class: 'c4-grid' });
+    delAnio.forEach(function (arr, i) {
+      var k = anio + '-' + pad(i + 1), prog = arr.filter(function (f) { return f.prog; }), total = sumar(arr);
+      var tarde = arr.some(function (f) { return f.atraso; });
+      var tipo = tarde ? ' atraso' : !prog.length ? '' : k <= cerca ? ' cerca' : ' lejos';
+      grid.appendChild(h('button', { type: 'button', class: 'c4-c' + tipo + (k === actual ? ' hoy' : '') + (k === state.c4Ciclo ? ' sel' : ''),
+          'data-ciclo': k, disabled: arr.length ? null : 'disabled', style: '--p: ' + (arr.length ? Math.round(6 + 24 * total / maxAnio) : 0) + '%' },
+        h('b', { text: fmtMes.format(new Date(anio, i, 1)).replace('.', '').slice(0, 3) }),
+        h('span', { class: 'num', text: arr.length ? dineroCorto(total) : '—' }),
+        h('small', { text: tarde ? 'Atrasado' : arr.length ? arr.length + (arr.length === 1 ? ' gasto' : ' gastos') : '\u00a0' })));
+    });
+    var ul = h('ul', { class: 'lista', id: 'c4Lista' }), sel = ciclos[state.c4Ciclo] || null;
+    if (sel && state.c4Ciclo.slice(0, 4) === String(anio)) {
+      var iniSel = deYmd(state.c4Ciclo + '-' + pad(CORTE));
+      ul.appendChild(h('li', { class: 'c4-sec' }, h('span', { text: fmtDia.format(iniSel) + ' – ' + fmtDiaAnio.format(finPeriodo(iniSel)) }),
+        h('span', { class: 'num', text: dinero(sumar(sel)) })));
+      sel.forEach(function (f) {
         ul.appendChild(h('li', {},
-          h('span', { class: 'f num' + (f.atraso ? ' c4-atraso' : f.cerca ? ' c4-cerca' : ''), text: f.fecha }),
+          h('span', { class: 'f num' + (f.atraso ? ' c4-atraso' : ''), text: f.fecha }),
           h('div', { class: 'd' }, h('b', { text: f.nombre }), h('span', { class: f.atraso ? 'c4-atraso' : null, text: f.det })),
           h('span', { class: 'num', text: dinero(f.monto) })));
       });
-    }
-    seccion('Programado · 2 años', 'No hay gastos previstos.', comprasProgramadas().map(function (c) {
-      return { d: c.d, fecha: c.x.prox.length > 7 ? fmtDia.format(c.d) : fmtMes.format(c.d).replace('.', ''),
-        nombre: c.x.nombre, det: c.atraso ? textoAtraso(c.x) : 'Cada ' + c.x.meses + ' meses', monto: conv(c.x.monto, 'PEN'), cerca: c.d <= cerca, atraso: c.atraso };
-    }));
-    var hist = state.gastos.filter(function (g) { return CAPA_DE_CAT[g.cat] === 4 && g.fecha >= desde; })
-      .sort(function (a, b) { return a.fecha < b.fecha ? 1 : a.fecha > b.fecha ? -1 : 0; })
-      .map(function (g) {
-        var d = deYmd(g.fecha);
-        return { d: d, fecha: fmtDia.format(d), nombre: CAT_NOMBRE[g.cat],
-          det: state.nombres[TARJETAS.indexOf(g.tarjeta)] + (g.nota ? ' · ' + g.nota : ''), monto: conv(Number(g.monto) || 0, monedaDe(g)) };
-      });
-    var ultimo = hist[hist.length - 1];
-    seccion('Historial' + (ultimo ? ' · desde ' + fmtMes.format(ultimo.d).replace('.', '') + ' ' + ultimo.d.getFullYear() : ''), 'Aún no hay gastos de capa 4.', hist);
+    } else ul.appendChild(h('li', { class: 'c4-vacio', text: 'Toca un ciclo para ver sus gastos.' }));
+    function dato(color, txt) { return h('span', {}, h('span', { class: 'dot', style: '--c: var(--' + color + ')' }), txt); }
+    var cuerpo = $('c4Cuerpo');
+    cuerpo.textContent = '';
+    cuerpo.appendChild(h('div', { class: 'c4-nav' },
+      h('button', { type: 'button', class: 'btn', 'data-anio': String(anio - 1), disabled: anio > primero ? null : 'disabled', 'aria-label': 'Año anterior', text: '‹' }),
+      h('span', { text: String(anio) }),
+      h('button', { type: 'button', class: 'btn', 'data-anio': String(anio + 1), disabled: anio < ultimo ? null : 'disabled', 'aria-label': 'Año siguiente', text: '›' }),
+      h('span', { class: 'num', text: 'Total ' + dinero(delAnio.reduce(function (t, arr) { return t + sumar(arr); }, 0)) })));
+    cuerpo.appendChild(grid);
+    cuerpo.appendChild(h('div', { class: 'c4-leyenda' }, dato('danger', 'Atrasado'), dato('warn', 'Próximo'), dato('accent', 'Programado'), dato('muted', 'Pasado')));
+    cuerpo.appendChild(ul);
   }
 
   function renderLista(gp) {
@@ -2186,6 +2225,15 @@ body::after { right: 0; transform: scaleY(-1); }
   $('pcCerrar').addEventListener('click', function () { state.capaDe = null; render(); });
   $('plCerrar').addEventListener('click', function () { state.verLista = false; render(); });
   $('c4Cerrar').addEventListener('click', function () { state.verCapa4 = false; render(); });
+  $('c4Cuerpo').addEventListener('click', function (ev) {
+    var b = ev.target.closest('[data-anio], [data-ciclo]');
+    if (!b) return;
+    var ciclo = b.getAttribute('data-ciclo');
+    if (ciclo) state.c4Ciclo = state.c4Ciclo === ciclo ? null : ciclo;
+    else { state.c4Anio = +b.getAttribute('data-anio'); state.c4Ciclo = null; }
+    renderPopCapa4();
+    if (ciclo) $('c4Lista').scrollIntoView({ block: 'nearest' });
+  });
   function cerrarRecibir() { state.recibir = null; render(); }
   $('prCerrar').addEventListener('click', cerrarRecibir);
   $('prCancelar').addEventListener('click', cerrarRecibir);
@@ -2245,7 +2293,12 @@ body::after { right: 0; transform: scaleY(-1); }
     }
     b = ev.target.closest('.recibir');
     if (b) { abrirRecibir(b.getAttribute('data-t')); return; }
-    if (ev.target.closest('.ver-capa4')) { state.verCapa4 = !state.verCapa4; state.diaSel = null; state.capaDe = null; state.verLista = false; render(); return; }
+    if (ev.target.closest('.ver-capa4')) {
+      state.verCapa4 = !state.verCapa4; state.c4Anio = inicioPeriodo(new Date()).getFullYear(); state.c4Ciclo = null;
+      state.diaSel = null; state.capaDe = null; state.verLista = false;
+      render();
+      return;
+    }
     b = ev.target.closest('.resaltar');
     if (b) { state.medio = state.medio === b.getAttribute('data-t') ? null : b.getAttribute('data-t'); state.diaSel = null; render(); return; }
     // Un clic en un espacio vacio (fuera de botones, campos, listas y ventanas) cierra las ventanas abiertas;
