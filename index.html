@@ -288,7 +288,7 @@ body::after { right: 0; transform: scaleY(-1); }
 .deshacer { border: 0; background: none; color: var(--muted); font-size: 12px; padding: 0; align-self: flex-start; text-decoration: underline; }
 .deshacer:hover { color: var(--accent); }
 .filas .num { text-align: right; }
-#pFilas .num { white-space: nowrap; }
+#pFilas .num, #rSobrante .num { white-space: nowrap; }
 .filas li > span:first-child { white-space: nowrap; }
 .tj .filas li { font-size: 13px; }
 .tj .filas .num { font-size: 13px; }
@@ -394,7 +394,7 @@ body::after { right: 0; transform: scaleY(-1); }
   #popPeriodo .lista .acciones { grid-column: 2 / -1; justify-self: end; }
 }
 @media (max-width: 360px) {
-  #pFilas li { font-size: 12.5px; gap: 8px; }
+  #pFilas li, #rSobrante li { font-size: 12.5px; gap: 8px; }
   .capa-f { padding: 14px 8px 10px; }
   .capa-nombre { font-size: 12px; }
   .capa-f small { font-size: 11px; }
@@ -838,6 +838,7 @@ body::after { right: 0; transform: scaleY(-1); }
   // PREVISTOS: gastos de capa 4 en soles { nombre, cat, monto, meses, prox }; prox es mes o dia exacto.
   // INGRESO_FIJO: valor inicial; llega entre el 26 y el 29 y puede variar. Topes: en soles, por periodo.
   var PREVISTOS, INGRESO_FIJO, TOPE_CAPA3, TOPE_RESTAURANTES;
+  var SOBRANTE_DESDE = '2026-10-11'; // primer ciclo con gastos y saldos fieles
   var COLCHON_PCT = 0.13, COLCHON_MESES = 2; // aparta este % de cada ingreso hasta juntar 2 meses de gastos basicos (capas 1 y 2)
   var PAGA_CON = { t1: 'yape', t4: 'yape', t2: 'plin', t3: 'plin' }; // cuenta que paga en soles cada tarjeta
   var LOCAL = /[?&]local\b/.test(location.search); // index.html?local lee datos-locales.json (no se sube a GitHub)
@@ -1497,14 +1498,18 @@ body::after { right: 0; transform: scaleY(-1); }
       : '';
 
     // Sobrante: ingresos para vivir recibidos en el periodo (fijo + freelance) menos los gastos del periodo
-    var rows = [];
-    for (k = 0; k < 4; k++) {
+    // Desde SOBRANTE_DESDE; el acumulado solo suma ciclos cerrados
+    var rows = [], acumulado = 0, cerrados = 0;
+    for (k = 0; ; k++) {
       var ini = new Date(p.ini.getFullYear(), p.ini.getMonth() - k, CORTE), a = ymd(ini), b = ymd(finPeriodo(ini));
+      if (a < SOBRANTE_DESDE) break;
       var ing = sumaConv(state.ingresos.filter(function (x) { return x.real && x.real >= a && x.real <= b; }));
       var s = ing - porCapaEntre(a, b).reduce(function (t, x) { return t + x; }, 0);
-      rows.push([fmtDia.format(ini) + ' – ' + fmtDia.format(finPeriodo(ini)) + (k === 0 ? ' (en curso)' : ''),
+      rows.push([fmtDia.format(ini) + ' – ' + fmtDia.format(finPeriodo(ini)) + (k === 0 ? ' (actual)' : ''),
         (s >= 0 ? '+ ' : '− ') + dinero(Math.abs(s))]);
+      if (k) { acumulado += s; cerrados++; }
     }
+    rows.push(['Acumulado desde oct', cerrados ? (acumulado >= 0 ? '+ ' : '− ') + dinero(Math.abs(acumulado)) : '—', true]);
     filas($('rSobrante'), rows);
   }
 
