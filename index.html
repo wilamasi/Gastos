@@ -1639,7 +1639,7 @@ body::after { right: 0; transform: scaleY(-1); }
     t.appendChild(h('tfoot', {}, pie));
   }
 
-  // Fila de un gasto; en la ventana del dia va sin fecha ni boton Borrar
+  // Fila de un gasto; en la ventana del dia va sin fecha, con Editar y Borrar
   function filaGasto(g, corta) {
     var i = TARJETAS.indexOf(g.tarjeta);
     return h('li', { class: 'gasto' },
@@ -1651,7 +1651,9 @@ body::after { right: 0; transform: scaleY(-1); }
           h('span', { class: 'txt', text: (state.nombres[i] || 'Tarjeta') + (g.nota ? ' · ' + g.nota : '') }),
           g.proceso ? h('em', { class: 'sig', text: '· ocurrido el ' + fmtDia.format(deYmd(g.fecha)) }) : null)),
       h('span', { class: 'num', text: dinero(Number(g.monto)) }),
-      corta ? h('button', { type: 'button', class: 'borrar editar', 'data-id': g.id, text: 'Editar' }) : h('span', { class: 'acciones' },
+      corta ? h('span', { class: 'acciones' },
+        h('button', { type: 'button', class: 'borrar editar', 'data-id': g.id, text: 'Editar' }),
+        h('button', { type: 'button', class: 'borrar', 'data-id': g.id, text: 'Borrar' })) : h('span', { class: 'acciones' },
         g.proceso ? h('button', { type: 'button', class: 'borrar mover', 'data-id': g.id, 'data-p': '', text: 'Devolver' }) :
         cercaDelCierre(g.fecha, g.tarjeta) ? h('button', { type: 'button', class: 'borrar mover', 'data-id': g.id, 'data-p': siguienteCiclo(g.fecha, g.tarjeta), text: 'Pasar al siguiente ciclo' }) : null,
         h('button', { type: 'button', class: 'borrar', 'data-id': g.id, text: 'Borrar' })));
@@ -2216,7 +2218,9 @@ body::after { right: 0; transform: scaleY(-1); }
       li.appendChild(formEditar(g));
       return;
     }
-    if (ev.target.closest('[data-cancelar]')) render();
+    if (ev.target.closest('[data-cancelar]')) { render(); return; }
+    var b = ev.target.closest('.borrar');
+    if (b && store) borrarGasto(b);
   });
   $('popLista').addEventListener('submit', function (ev) {
     ev.preventDefault();
@@ -2287,7 +2291,10 @@ body::after { right: 0; transform: scaleY(-1); }
       return;
     }
     var b = ev.target.closest('.borrar');
-    if (!b || !store) return;
+    if (b && store) borrarGasto(b);
+  });
+  // Primer clic pide confirmar; el segundo borra, con opcion de deshacer
+  function borrarGasto(b) {
     if (!b.classList.contains('confirma')) {
       b.classList.add('confirma');
       b.textContent = '¿Borrar? Confirmar';
@@ -2305,7 +2312,7 @@ body::after { right: 0; transform: scaleY(-1); }
         });
       })
       .catch(function (e) { b.disabled = false; mensaje(textoError(e), true); });
-  });
+  }
 
   $('form').addEventListener('submit', function (ev) {
     ev.preventDefault();
