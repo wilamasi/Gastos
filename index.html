@@ -169,10 +169,12 @@ td.cero { color: var(--muted); opacity: .6; }
 .lista .num { white-space: nowrap; }
 .previstos li { grid-template-columns: 48px minmax(0, 1fr) auto; }
 .filas li.previsto .tj-nombre span:last-child { color: var(--warn); font-weight: 600; }
+.filas li.previsto.atrasado .tj-nombre span:last-child { color: var(--danger); }
 .previstos .d .cerca-tag { color: var(--warn); font-weight: 600; }
+.previstos .d .atraso-tag { color: var(--danger); font-weight: 600; }
 .prev-der { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
 .prev-der .borrar { min-height: 0; padding: 2px 0; }
-.compre:hover { color: var(--accent); }
+.compre:hover, .editar-prev:hover { color: var(--accent); }
 .previstos li.editando { display: block; }
 .previstos .d span { flex-wrap: nowrap; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
 .previstos .hoja.lejos { --h: var(--muted); }
@@ -218,6 +220,7 @@ td.cero { color: var(--muted); opacity: .6; }
 #c4Lista .num { font-size: 13px; }
 #c4Lista .d b { font-size: 14px; }
 #c4Lista .c4-cerca { color: var(--warn); font-weight: 600; }
+#c4Lista .c4-atraso { color: var(--danger); font-weight: 600; }
 .ver-capa4 { min-height: 32px; padding: 4px 6px; font-size: 13px; white-space: nowrap; }
 .pop-ancho { width: min(620px, calc(100vw - 32px)); }
 #popPeriodo .lista li { grid-template-columns: 52px minmax(0, 1fr) auto auto; }
@@ -423,6 +426,11 @@ body::after { right: 0; transform: scaleY(-1); }
   .lista li { grid-template-columns: 52px minmax(0, 1fr) auto; }
   .lista .borrar { grid-column: 2 / -1; justify-self: end; padding-block: 0; }
   .lista .acciones { grid-column: 2 / -1; justify-self: end; }
+  .previstos li { grid-template-columns: 48px minmax(0, 1fr); }
+  .previstos .d b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .prev-der { grid-column: 1 / -1; flex-direction: row; align-items: center; gap: 14px; }
+  .prev-der .num { margin-right: auto; }
+  .prev-der .borrar { grid-column: auto; }
 }
 </style>
 
@@ -978,20 +986,32 @@ body::after { right: 0; transform: scaleY(-1); }
   function provision(mon) {
     return PREVISTOS.reduce(function (s, x) { return s + convA(x.monto / x.meses, 'PEN', mon || state.moneda); }, 0);
   }
-  // Proxima fecha de un gasto previsto; si ya paso, avanza de N en N meses
-  function proxPrevisto(x) {
-    var p = x.prox.split('-'), d = new Date(+p[0], +p[1] - 1, +(p[2] || 1)), hoyD = new Date();
-    hoyD = new Date(hoyD.getFullYear(), hoyD.getMonth(), p[2] ? hoyD.getDate() : 1);
-    while (d < hoyD) d = new Date(d.getFullYear(), d.getMonth() + x.meses, d.getDate());
-    return d;
+  // Fecha acordada de un gasto previsto; prox es mes o dia exacto
+  function fechaAcordada(x) {
+    var p = x.prox.split('-');
+    return new Date(+p[0], +p[1] - 1, +(p[2] || 1));
   }
+  // Hoy, o el inicio de este mes si el previsto solo indica el mes
+  function hoyPrevisto(x) {
+    var hoyD = new Date();
+    return new Date(hoyD.getFullYear(), hoyD.getMonth(), x.prox.length > 7 ? hoyD.getDate() : 1);
+  }
+  function atrasado(x) { return fechaAcordada(x) < hoyPrevisto(x); }
+  // Proxima fecha: si ya paso y no se compro, sigue pendiente hasta marcar "Ya lo compré"
+  function proxPrevisto(x) { return atrasado(x) ? hoyPrevisto(x) : fechaAcordada(x); }
+  function textoAtraso(x) {
+    var d = fechaAcordada(x), anio = d.getFullYear() === new Date().getFullYear() ? '' : ' ' + d.getFullYear();
+    return 'Atrasado desde ' + (x.prox.length > 7 ? fmtDia.format(d) : fmtMes.format(d).replace('.', '')) + anio;
+  }
+  function porFechaPrevisto(a, b) { return atrasado(b.x) - atrasado(a.x) || a.d - b.d; }
   // Compras previstas de los proximos 2 años: cada gasto se repite segun su frecuencia
   function comprasProgramadas() {
     var hoyD = new Date(), limite = new Date(hoyD.getFullYear() + 2, hoyD.getMonth(), hoyD.getDate()), r = [];
     PREVISTOS.forEach(function (x) {
-      for (var d = proxPrevisto(x); d <= limite; d = new Date(d.getFullYear(), d.getMonth() + x.meses, d.getDate())) r.push({ x: x, d: d });
+      var primera = proxPrevisto(x);
+      for (var d = primera; d <= limite; d = new Date(d.getFullYear(), d.getMonth() + x.meses, d.getDate())) r.push({ x: x, d: d, atraso: d === primera && atrasado(x) });
     });
-    return r.sort(function (a, b) { return a.d - b.d; });
+    return r.sort(function (a, b) { return b.atraso - a.atraso || a.d - b.d; });
   }
   // Promedio de los ultimos 3 ingresos fijos recibidos (o el valor inicial si aun no hay)
   function fijoEsperado() {
@@ -1168,23 +1188,24 @@ body::after { right: 0; transform: scaleY(-1); }
   // Lista de gastos previstos: la fecha en ambar si toca en los proximos 3 meses
   function renderPrevistos() {
     var hoyD = new Date(), limite = new Date(hoyD.getFullYear(), hoyD.getMonth() + 3, hoyD.getDate());
-    var items = PREVISTOS.map(function (x) { return { x: x, d: proxPrevisto(x) }; })
-      .sort(function (a, b) { return a.d - b.d; });
+    var items = PREVISTOS.map(function (x) { return { x: x, d: proxPrevisto(x) }; }).sort(porFechaPrevisto);
     var ul = $('cPrevistos');
     ul.textContent = '';
     items.forEach(function (it) {
-      var x = it.x, d = it.d;
+      var x = it.x, d = it.d, tarde = atrasado(x);
       ul.appendChild(h('li', {},
-        h('span', { class: 'hoja' + (d <= limite ? '' : ' lejos') },
+        h('span', { class: 'hoja' + (tarde ? ' atras' : d <= limite ? '' : ' lejos') },
           h('b', { text: x.prox.length > 7 ? String(d.getDate()) : fmtMes.format(d).replace('.', '') }),
           h('span', { text: x.prox.length > 7 ? fmtMes.format(d).replace('.', '') + ' ' + String(d.getFullYear()).slice(2) : String(d.getFullYear()) })),
         h('div', { class: 'd' },
           h('b', { text: x.nombre }),
+          tarde ? h('span', { class: 'atraso-tag', text: textoAtraso(x) + ' · ' + soles(x.monto) }) :
           cerca30(d) ? h('span', { class: 'cerca-tag', text: 'Se acerca · ' + soles(x.monto) }) :
             h('span', { text: soles(x.monto) + ' cada ' + x.meses + ' meses' })),
         h('div', { class: 'prev-der' },
           h('span', { class: 'num', text: dinero(x.monto / x.meses, 'PEN') + '/mes' }),
-          h('button', { type: 'button', class: 'borrar compre', 'data-i': String(PREVISTOS.indexOf(x)), text: 'Ya lo compré' }))));
+          h('button', { type: 'button', class: 'borrar compre', 'data-i': String(PREVISTOS.indexOf(x)), text: 'Ya lo compré' }),
+          h('button', { type: 'button', class: 'borrar editar-prev', 'data-i': String(PREVISTOS.indexOf(x)), text: 'Editar' }))));
     });
     $('cProvision').textContent = dinero(provision('PEN'), 'PEN');
     $('cProximos').textContent = '';
@@ -1365,7 +1386,7 @@ body::after { right: 0; transform: scaleY(-1); }
   function previstosCerca() {
     return PREVISTOS.map(function (x) { return { x: x, d: proxPrevisto(x) }; })
       .filter(function (it) { return cerca30(it.d); })
-      .sort(function (a, b) { return a.d - b.d; });
+      .sort(porFechaPrevisto);
   }
   function fechaPrevisto(it) {
     return it.x.prox.length > 7 ? fmtDia.format(it.d) : fmtMes.format(it.d).replace('.', '') + ' ' + it.d.getFullYear();
@@ -1374,9 +1395,10 @@ body::after { right: 0; transform: scaleY(-1); }
     ul.textContent = '';
     var prev = conPrevistos ? previstosCerca() : [];
     prev.forEach(function (it) {
-      ul.appendChild(h('li', { class: 'previsto' },
-        h('span', { class: 'tj-nombre' }, h('span', { class: 'dot', style: '--c: var(--warn)' }),
-          h('span', { text: fechaPrevisto(it) + ' · ' + it.x.nombre + ' (Reserva)' })),
+      var tarde = atrasado(it.x);
+      ul.appendChild(h('li', { class: 'previsto' + (tarde ? ' atrasado' : '') },
+        h('span', { class: 'tj-nombre' }, h('span', { class: 'dot', style: '--c: var(--' + (tarde ? 'danger' : 'warn') + ')' }),
+          h('span', { text: (tarde ? 'Atrasado' : fechaPrevisto(it)) + ' · ' + it.x.nombre + ' (Reserva)' })),
         h('span', { class: 'num', text: dinero(convA(it.x.monto, 'PEN', state.moneda)) })));
     });
     if (!lista.length && !prev.length) { ul.appendChild(h('li', {}, h('span', { class: 'hint', text: 'No hay pagos pendientes.' }))); return; }
@@ -1782,6 +1804,21 @@ body::after { right: 0; transform: scaleY(-1); }
     return f;
   }
 
+  // Formulario para cambiar el monto, la frecuencia o la proxima fecha de un gasto previsto
+  function formPrevisto(x, i) {
+    var f = h('form', { class: 'form-edit', 'data-i': String(i), 'data-editar': '1' },
+      h('b', { class: 'ancho', text: 'Editar: ' + x.nombre }),
+      h('div', { class: 'campo' }, h('label', { text: 'Monto (S/)' }), h('input', { name: 'monto', type: 'number', step: '0.01', min: '0.01', inputmode: 'decimal', required: 'required' })),
+      h('div', { class: 'campo' }, h('label', { text: 'Cada (meses)' }), h('input', { name: 'meses', type: 'number', step: '1', min: '1', inputmode: 'numeric', required: 'required' })),
+      h('div', { class: 'campo ancho' }, h('label', { text: 'Próxima fecha' }), h('input', { name: 'fecha', type: 'date', required: 'required' })),
+      h('div', { class: 'botones' },
+        h('button', { type: 'button', class: 'btn', 'data-cancelar': '1', text: 'Cancelar' }),
+        h('button', { type: 'submit', class: 'btn primary', text: 'Guardar' })));
+    f.elements.monto.value = x.monto; f.elements.meses.value = x.meses;
+    f.elements.fecha.value = ymd(fechaAcordada(x));
+    return f;
+  }
+
   // Formulario para editar un gasto dentro de la ventana del dia
   function formEditar(g) {
     function campo(label, ctrl, ancho) { return h('div', { class: 'campo' + (ancho ? ' ancho' : '') }, h('label', { text: label }), ctrl); }
@@ -1907,14 +1944,14 @@ body::after { right: 0; transform: scaleY(-1); }
           ul.appendChild(cabecera('c4-anio', String(y), arr.filter(function (o) { return o.d.getFullYear() === y; })));
         }
         ul.appendChild(h('li', {},
-          h('span', { class: 'f num' + (f.cerca ? ' c4-cerca' : ''), text: f.fecha }),
-          h('div', { class: 'd' }, h('b', { text: f.nombre }), h('span', { text: f.det })),
+          h('span', { class: 'f num' + (f.atraso ? ' c4-atraso' : f.cerca ? ' c4-cerca' : ''), text: f.fecha }),
+          h('div', { class: 'd' }, h('b', { text: f.nombre }), h('span', { class: f.atraso ? 'c4-atraso' : null, text: f.det })),
           h('span', { class: 'num', text: dinero(f.monto) })));
       });
     }
     seccion('Programado · 2 años', 'No hay gastos previstos.', comprasProgramadas().map(function (c) {
       return { d: c.d, fecha: c.x.prox.length > 7 ? fmtDia.format(c.d) : fmtMes.format(c.d).replace('.', ''),
-        nombre: c.x.nombre, det: 'Cada ' + c.x.meses + ' meses', monto: conv(c.x.monto, 'PEN'), cerca: c.d <= cerca };
+        nombre: c.x.nombre, det: c.atraso ? textoAtraso(c.x) : 'Cada ' + c.x.meses + ' meses', monto: conv(c.x.monto, 'PEN'), cerca: c.d <= cerca, atraso: c.atraso };
     }));
     var hist = state.gastos.filter(function (g) { return CAPA_DE_CAT[g.cat] === 4 && g.fecha >= desde; })
       .sort(function (a, b) { return a.fecha < b.fecha ? 1 : a.fecha > b.fecha ? -1 : 0; })
@@ -2330,11 +2367,28 @@ body::after { right: 0; transform: scaleY(-1); }
       li.appendChild(formCompra(PREVISTOS[i], i));
       return;
     }
+    b = ev.target.closest('.editar-prev');
+    if (b) {
+      var n = +b.getAttribute('data-i'), fila = b.closest('li');
+      fila.textContent = '';
+      fila.className = 'editando';
+      fila.appendChild(formPrevisto(PREVISTOS[n], n));
+      return;
+    }
     if (ev.target.closest('[data-cancelar]')) render();
   });
   $('cPrevistos').addEventListener('submit', function (ev) {
     ev.preventDefault();
-    var f = ev.target.elements, x = PREVISTOS[+ev.target.getAttribute('data-i')];
+    var f = ev.target.elements, i = +ev.target.getAttribute('data-i'), x = PREVISTOS[i];
+    if (ev.target.getAttribute('data-editar')) {
+      var nuevo = Math.round(parseFloat(f.monto.value) * 100) / 100, meses = parseInt(f.meses.value, 10), dia = f.fecha.value;
+      if (!(nuevo > 0) || !(meses >= 1) || !dia) return;
+      var antes = JSON.stringify(x);
+      x.monto = nuevo; x.meses = meses; x.prox = x.prox.length > 7 ? dia : dia.slice(0, 7);
+      render();
+      avisar(x.nombre + ' actualizado.', function () { PREVISTOS[i] = JSON.parse(antes); render(); });
+      return;
+    }
     var monto = Math.round(parseFloat(f.monto.value) * 100) / 100, fecha = f.fecha.value;
     if (!(monto > 0) || !fecha || !store) return;
     var g = { fecha: fecha, monto: monto, moneda: 'PEN', tarjeta: f.tarjeta.value, cat: x.cat, nota: x.nombre, creado: new Date().toISOString(), proceso: '' };
