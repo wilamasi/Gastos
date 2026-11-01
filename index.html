@@ -209,6 +209,9 @@ td.cero { color: var(--muted); opacity: .6; }
 .rk-var.baja { color: var(--ok); }
 .rk-var.igual, .rk-var.nuevo { color: var(--muted); }
 .pop-chico { width: min(330px, calc(100vw - 32px)); }
+.pop-ancho { width: min(620px, calc(100vw - 32px)); }
+#popPeriodo .lista li { grid-template-columns: 52px minmax(0, 1fr) auto auto; }
+.ver-lista { margin-left: auto; white-space: nowrap; }
 .pop-chico .filas { padding: 4px 14px 10px; }
 .pop-chico .filas .tj-nombre span:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* Yape y Plin: botones en su recuadro de Gastos y resaltado */
@@ -373,6 +376,8 @@ body::after { right: 0; transform: scaleY(-1); }
   body::before, body::after { display: none; }
   .pop { top: auto !important; left: 0 !important; right: 0; bottom: 0; width: auto; max-height: 60vh; border-radius: 14px 14px 0 0; padding-bottom: env(safe-area-inset-bottom); z-index: 9; }
   .pop-head { cursor: default; }
+  #popPeriodo .lista li { grid-template-columns: 52px minmax(0, 1fr) auto; }
+  #popPeriodo .lista .acciones { grid-column: 2 / -1; justify-self: end; }
 }
 @media (max-width: 460px) {
   .ranking li { grid-template-columns: 16px minmax(0, 1fr) 96px 50px; gap: 8px; padding: 8px 4px; }
@@ -645,12 +650,6 @@ body::after { right: 0; transform: scaleY(-1); }
     <div class="scroll"><table id="matriz"></table></div>
   </section>
 
-  <section class="panel">
-    <div class="panel-head">
-      <h2>Gastos del periodo</h2>
-    </div>
-    <ul class="lista" id="lista"></ul>
-  </section>
   </div>
 
   <div class="pop" id="pop" role="dialog" aria-labelledby="popTitulo" hidden>
@@ -659,6 +658,14 @@ body::after { right: 0; transform: scaleY(-1); }
       <button class="pop-cerrar" id="popCerrar" type="button" aria-label="Cerrar">×</button>
     </div>
     <ul class="lista" id="popLista"></ul>
+  </div>
+
+  <div class="pop pop-ancho" id="popPeriodo" role="dialog" aria-labelledby="plTitulo" hidden>
+    <div class="pop-head" id="plHead">
+      <h2 id="plTitulo">—</h2>
+      <button class="pop-cerrar" id="plCerrar" type="button" aria-label="Cerrar">×</button>
+    </div>
+    <ul class="lista" id="lista"></ul>
   </div>
 
   <div class="pop pop-chico" id="popCapa" role="dialog" aria-labelledby="pcTitulo" hidden>
@@ -855,6 +862,7 @@ body::after { right: 0; transform: scaleY(-1); }
     medio: null, // 't6' o 't7': resalta en Gastos solo lo pagado con Yape o Plin
     cat: null, // categoria en detalle: resalta en Gastos solo esa categoria
     capaDe: null, // { t, ini }: ventana con lo gastado por capa con Yape o Plin
+    verLista: false, // ventana con todos los gastos del periodo
     pagados: {}, // estados de cuenta pagados antes de su fecha: 'tarjeta|fechaDePago' -> dia del pago
     capa: 0, // filtro de la pestaña Gastos: 0 = todas
     modo: 'cargando'
@@ -1753,6 +1761,10 @@ body::after { right: 0; transform: scaleY(-1); }
   function renderLista(gp) {
     var ul = $('lista');
     ul.textContent = '';
+    $('btnLista').textContent = 'Gastos del periodo · ' + gp.length;
+    $('popPeriodo').hidden = !state.verLista;
+    $('plTitulo').textContent = 'Gastos del periodo';
+    $('plTitulo').appendChild(h('span', { class: 'num', text: dinero(suma(gp)) }));
     if (!gp.length) {
       ul.appendChild(h('li', { style: 'display:block;border:0;padding:0' },
         h('p', { class: 'vacio', text: state.modo === 'cargando' ? 'Cargando tus gastos…' :
@@ -1963,9 +1975,10 @@ body::after { right: 0; transform: scaleY(-1); }
   $('btnHoy').addEventListener('click', function () { state.inicio = inicioPeriodo(new Date()); state.diaSel = null; render(); });
   $('popCerrar').addEventListener('click', function () { state.diaSel = null; render(); });
   $('pcCerrar').addEventListener('click', function () { state.capaDe = null; render(); });
+  $('plCerrar').addEventListener('click', function () { state.verLista = false; render(); });
   document.addEventListener('keydown', function (ev) {
     if (ev.key !== 'Escape') return;
-    if (state.capaDe) state.capaDe = null; else if (state.diaSel) state.diaSel = null; else return;
+    if (state.capaDe) state.capaDe = null; else if (state.diaSel) state.diaSel = null; else if (state.verLista) state.verLista = false; else return;
     render();
   });
   // Botones de Yape y Plin: ver lo gastado por capa, o resaltar solo sus gastos
@@ -1974,7 +1987,7 @@ body::after { right: 0; transform: scaleY(-1); }
     if (b) {
       var t = b.getAttribute('data-t');
       state.capaDe = state.capaDe && state.capaDe.t === t ? null : { t: t, ini: b.getAttribute('data-ini') === 'hoy' ? inicioPeriodo(new Date()) : state.inicio };
-      state.diaSel = null;
+      state.diaSel = null; state.verLista = false;
       var r = b.getBoundingClientRect(); // antes de redibujar, que reemplaza el boton
       render();
       // En computadora la ventana aparece debajo del boton, sin tapar el recuadro
@@ -1992,7 +2005,7 @@ body::after { right: 0; transform: scaleY(-1); }
     // Un clic en un espacio vacio (fuera de botones, campos, listas y ventanas) cierra las ventanas abiertas;
     // si no hay ninguna, deja de resaltar Yape o Plin
     if (ev.target.closest('button, a, input, select, textarea, label, li, .dia, .pop')) return;
-    if (state.diaSel || state.capaDe) { state.diaSel = null; state.capaDe = null; render(); }
+    if (state.diaSel || state.capaDe || state.verLista) { state.diaSel = null; state.capaDe = null; state.verLista = false; render(); }
     else if (state.medio || state.cat) { state.medio = null; state.cat = null; render(); }
   });
   // Arrastrar las ventanas por su cabecera (en celular quedan fijas abajo)
@@ -2012,6 +2025,7 @@ body::after { right: 0; transform: scaleY(-1); }
   }
   arrastrable($('popHead'), $('pop'));
   arrastrable($('pcHead'), $('popCapa'));
+  arrastrable($('plHead'), $('popPeriodo'));
 
   function ajustarMoneda() {
     var solo = SOLO_SOLES.indexOf($('fTarjeta').value) >= 0;
@@ -2078,7 +2092,7 @@ body::after { right: 0; transform: scaleY(-1); }
     if (!b) return;
     var key = b.getAttribute('data-dia');
     state.diaSel = state.diaSel === key ? null : key;
-    state.capaDe = null;
+    state.capaDe = null; state.verLista = false;
     $('fFecha').value = key; avisoCierre();
     render();
   });
@@ -2256,6 +2270,7 @@ body::after { right: 0; transform: scaleY(-1); }
     if (!document.querySelector('.vista[data-vista="' + v + '"]')) v = 'resumen';
     if (state.diaSel) { state.diaSel = null; $('pop').hidden = true; }
     if (state.capaDe) { state.capaDe = null; $('popCapa').hidden = true; }
+    if (state.verLista) { state.verLista = false; $('popPeriodo').hidden = true; }
     document.querySelectorAll('.vista').forEach(function (s) { s.hidden = s.getAttribute('data-vista') !== v; });
     document.querySelectorAll('.tab').forEach(function (b) {
       if (b.getAttribute('data-ir') === v) b.setAttribute('aria-current', 'page');
@@ -2386,6 +2401,11 @@ body::after { right: 0; transform: scaleY(-1); }
     GRUPOS.forEach(function (g) {
       if (g.capa) filtro.appendChild(h('button', { class: 'chip', type: 'button', 'data-capa': String(g.capa), text: g.capa + ' · ' + g.nombre }));
     });
+    filtro.appendChild(h('button', { class: 'btn ver-lista', id: 'btnLista', type: 'button', onclick: function () {
+      state.verLista = !state.verLista;
+      state.diaSel = null; state.capaDe = null;
+      render();
+    } }));
     if (!$('fFecha').value) $('fFecha').value = ymd(new Date());
     if (!$('iFecha').value) $('iFecha').value = ymd(new Date());
     $('fMoneda').value = state.moneda;
