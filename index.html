@@ -212,6 +212,8 @@ td.cero { color: var(--muted); opacity: .6; }
 .pop-ancho { width: min(620px, calc(100vw - 32px)); }
 #popPeriodo .lista li { grid-template-columns: 52px minmax(0, 1fr) auto auto; }
 .ver-lista { margin-left: auto; white-space: nowrap; }
+.recibir { white-space: nowrap; }
+#prForm { padding: 12px 14px; }
 .pop-chico .filas { padding: 4px 14px 10px; }
 .pop-chico .filas .tj-nombre span:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* Yape y Plin: botones en su recuadro de Gastos y resaltado */
@@ -668,6 +670,23 @@ body::after { right: 0; transform: scaleY(-1); }
     <ul class="lista" id="lista"></ul>
   </div>
 
+  <div class="pop pop-chico" id="popRecibir" role="dialog" aria-labelledby="prTitulo" hidden>
+    <div class="pop-head" id="prHead">
+      <h2 id="prTitulo">—</h2>
+      <button class="pop-cerrar" id="prCerrar" type="button" aria-label="Cerrar">×</button>
+    </div>
+    <form class="form-edit" id="prForm" novalidate>
+      <div class="campo"><label for="prSoles">Soles recibidos</label><input id="prSoles" type="number" step="0.01" min="0.01" inputmode="decimal"></div>
+      <div class="campo"><label for="prTc">Tipo de cambio</label><input id="prTc" type="number" step="0.001" min="0.001" inputmode="decimal"></div>
+      <p class="hint ancho" id="prDolares"></p>
+      <p class="msg err ancho" id="prMsg" role="status"></p>
+      <div class="botones">
+        <button type="button" class="btn" id="prCancelar">Cancelar</button>
+        <button type="submit" class="btn primary">Registrar</button>
+      </div>
+    </form>
+  </div>
+
   <div class="pop pop-chico" id="popCapa" role="dialog" aria-labelledby="pcTitulo" hidden>
     <div class="pop-head" id="pcHead">
       <h2 id="pcTitulo">—</h2>
@@ -863,6 +882,7 @@ body::after { right: 0; transform: scaleY(-1); }
     cat: null, // categoria en detalle: resalta en Gastos solo esa categoria
     capaDe: null, // { t, ini }: ventana con lo gastado por capa con Yape o Plin
     verLista: false, // ventana con todos los gastos del periodo
+    recibir: null, // 'yape' o 'plin': ventana para registrar lo que llega de la Cuenta sueldo
     pagados: {}, // estados de cuenta pagados antes de su fecha: 'tarjeta|fechaDePago' -> dia del pago
     capa: 0, // filtro de la pestaña Gastos: 0 = todas
     modo: 'cargando'
@@ -1126,6 +1146,7 @@ body::after { right: 0; transform: scaleY(-1); }
 
   function renderCuentas() {
     renderPrevistos();
+    $('popRecibir').hidden = !state.recibir;
     var hoyD = new Date(), col = colchon(), pm = promMensual();
     filas($('cColFilas'), [
       ['Tus 3 cuentas', dinero(col.total)],
@@ -1182,7 +1203,8 @@ body::after { right: 0; transform: scaleY(-1); }
         d.obj ? campo(t, 'objetivo', d.obj) : null,
         d.obj ? h('div', { class: 'barra' }, h('i', { id: 'cBar' + t })) : null,
         d.obj ? h('small', { id: 'cPct' + t }) : null,
-        h('small', { id: 'cAct' + t })));
+        h('small', { id: 'cAct' + t }),
+        d.obj === 'Bolsillo' ? h('button', { type: 'button', class: 'btn recibir', 'data-t': t, text: 'Recibir de Cuenta sueldo' }) : null));
     });
   }
 
@@ -1319,36 +1341,46 @@ body::after { right: 0; transform: scaleY(-1); }
     var act = porCapaEntre(p.a, p.b);
     var gastado = act[1] + act[2] + act[3]; // la capa 4 sale de la Reserva, ya descontada del presupuesto
     // Proyeccion al cierre: capa 1 como en los 3 periodos anteriores (si aun no llega),
-    // capas 2 y 3 al ritmo actual
+    // capa 2 igual durante los primeros 10 dias (una compra grande no la dispara) y luego a su ritmo, capa 3 a su ritmo
     var transcurridos = Math.round((deYmd(hoyKey) - p.ini) / 864e5) + 1;
     var totalDias = Math.round((fin - p.ini) / 864e5) + 1;
-    var prev1 = 0;
+    var prev1 = 0, prev2 = 0;
     for (k = 1; k <= 3; k++) {
-      var ik = new Date(p.ini.getFullYear(), p.ini.getMonth() - k, CORTE);
-      prev1 += porCapaEntre(ymd(ik), ymd(finPeriodo(ik)))[1] / 3;
+      var ik = new Date(p.ini.getFullYear(), p.ini.getMonth() - k, CORTE), capasIk = porCapaEntre(ymd(ik), ymd(finPeriodo(ik)));
+      prev1 += capasIk[1] / 3;
+      prev2 += capasIk[2] / 3;
     }
-    var proy = Math.max(act[1], prev1) + (act[2] + act[3]) / transcurridos * totalDias;
-    var queda = p.total - gastado, margen = p.total - proy;
-    var sem = !(p.total > 0) ? '' : proy <= p.total * 0.9 ? 'verde' : proy <= p.total ? 'ambar' : 'rojo';
+    var ritmo = totalDias / transcurridos;
+    var proy1 = Math.max(act[1], prev1), proy2 = transcurridos <= 10 ? Math.max(act[2], prev2) : act[2] * ritmo, proy3 = act[3] * ritmo;
+    var proy = proy1 + proy2 + proy3;
+    // Lo que queda para la capa 3 despues de lo basico; por encima de su tope, es sobrante para ahorrar
+    var paraCapa3 = p.total - proy1 - proy2;
+    var tope = Math.max(0, Math.min(conv(TOPE_CAPA3, 'PEN'), paraCapa3));
+    var queda = tope - act[3], margen = tope - proy3;
+    var sem = !(p.total > 0) ? '' : proy3 <= tope * 0.9 ? 'verde' : proy3 <= tope ? 'ambar' : 'rojo';
 
     $('presu').className = 'panel semaforo' + (sem ? ' sem-' + sem : '');
     $('pEtiqueta').textContent = queda >= 0 ? 'Aún puedes gastar' : 'Te pasaste este periodo por';
     $('pQueda').textContent = dinero(Math.abs(queda));
     $('pFrase').textContent = {
-      verde: 'Vas bien: a este ritmo te sobran ' + dinero(margen) + ' del presupuesto.',
-      ambar: 'Vas justo: cuida la capa 3. A este ritmo te sobran ' + dinero(margen) + ' del presupuesto.',
+      verde: 'Vas bien: a este ritmo te sobran ' + dinero(margen) + ' de tu capa 3.',
+      ambar: 'Vas justo: cuida la capa 3. A este ritmo te sobran ' + dinero(margen) + '.',
       rojo: 'No alcanza: a este ritmo te faltan ' + dinero(-margen) + '. Recorta la capa 3; lo que falte sale del colchón.'
     }[sem] || '';
     filas($('pFilas'), [
       [p.recibido ? 'Ingreso fijo recibido' : 'Ingreso fijo esperado', dinero(p.fijo)],
       ['Colchón (10%)', p.aporte ? '− ' + dinero(p.aporte) : 'Lleno, no aplica'],
       ['Reserva (capa 4)', '− ' + dinero(p.reserva)],
-      ['Presupuesto', dinero(p.total), true],
-      ['Gastado (capas 1 a 3)', dinero(gastado)],
+      ['Capa 1 proyectada', '− ' + dinero(proy1)],
+      ['Capa 2 proyectada', '− ' + dinero(proy2)],
+      ['Presupuesto capa 3', dinero(paraCapa3), true],
+      ['Tope de capa 3', dinero(tope)],
+      ['Capa 3 gastada', '− ' + dinero(act[3])],
+      ['Sobrante para ahorrar', dinero(Math.max(0, paraCapa3 - tope))],
       ['Proyección al cierre', dinero(proy)]
     ]);
     $('pNota').textContent = 'Periodo ' + fmtDia.format(p.ini) + ' – ' + fmtDia.format(fin) + ' (día ' + transcurridos + ' de ' + totalDias + '). ' +
-      'Proyección: capa 1 como en tus periodos anteriores, capas 2 y 3 al ritmo actual. Tipo de cambio: S/ ' + c.tc + ' por dólar.';
+      'Proyección: capa 1 como en tus periodos anteriores; capa 2 igual hasta el día 10 y luego a tu ritmo; capa 3 a tu ritmo. Tipo de cambio: S/ ' + c.tc + ' por dólar.';
     renderPagos($('rPagos'), pend.slice(0, 5), true);
 
     var col = colchon(), costo = pm[1] + pm[2] + pm[3] + pm[4];
@@ -1378,8 +1410,7 @@ body::after { right: 0; transform: scaleY(-1); }
       [libre >= 0 ? 'Libre de ese sueldo' : 'Falta en ese sueldo', dinero(Math.abs(libre)), true]
     ]);
 
-    // Tope de la capa 3: lo que queda del presupuesto despues de lo basico, sin pasar de TOPE_CAPA3
-    var porCapa = act, total = gastado + act[4], tope = Math.max(0, Math.min(conv(TOPE_CAPA3, 'PEN'), p.total - pm[1] - pm[2]));
+    var porCapa = act, total = gastado + act[4];
     var restaurantes = sumaConv(state.gastos.filter(function (g) { var f = fechaCiclo(g); return g.cat === 'restaurantes' && f >= p.a && f <= p.b; }));
     var topeRest = conv(TOPE_RESTAURANTES, 'PEN');
     // De donde salio cada capa: por tarjeta, para ver lo que se va por Yape o Plin
@@ -1933,10 +1964,11 @@ body::after { right: 0; transform: scaleY(-1); }
     });
     descargar('gastos-' + ymd(new Date()) + '.csv', '﻿' + filas.join('\r\n'), 'text/csv;charset=utf-8');
   });
-  $('btnCopia').addEventListener('click', function () {
+  function descargarCopia() {
     var copia = { fecha: ymd(new Date()), gastos: state.gastos, datos: datosActuales() };
     descargar('copia-flujo-' + copia.fecha + '.json', JSON.stringify(copia, null, 2), 'application/json');
-  });
+  }
+  $('btnCopia').addEventListener('click', descargarCopia);
   $('btnRestaurar').addEventListener('click', function () {
     if (state.modo === 'nube') $('fCopia').click();
     else avisar('La copia se restaura con tu cuenta iniciada.');
@@ -1960,6 +1992,8 @@ body::after { right: 0; transform: scaleY(-1); }
       var d = JSON.parse(t);
       if (!Array.isArray(d.gastos) || !d.gastos.length || !d.datos) throw new Error('copia');
       if (!confirm('¿Restaurar la copia del ' + d.fecha + '? Tus datos actuales se reemplazarán por los ' + d.gastos.length + ' gastos, cobros y saldos de ese archivo.')) return;
+      if (prompt('Para confirmar, escribe RESTAURAR. Antes se descargará una copia de lo que tienes ahora.') !== 'RESTAURAR') return;
+      descargarCopia();
       return restaurar(d).then(function () { avisar('Copia restaurada.'); });
     }).catch(function () { avisar('No se pudo restaurar: revisa que sea una copia de esta app.'); });
   });
@@ -1976,9 +2010,42 @@ body::after { right: 0; transform: scaleY(-1); }
   $('popCerrar').addEventListener('click', function () { state.diaSel = null; render(); });
   $('pcCerrar').addEventListener('click', function () { state.capaDe = null; render(); });
   $('plCerrar').addEventListener('click', function () { state.verLista = false; render(); });
+  function cerrarRecibir() { state.recibir = null; render(); }
+  $('prCerrar').addEventListener('click', cerrarRecibir);
+  $('prCancelar').addEventListener('click', cerrarRecibir);
+  // Solo registra el movimiento: la transferencia real se hace en el banco
+  function abrirRecibir(t) {
+    state.recibir = t;
+    $('prTitulo').textContent = 'Recibir en ' + (t === 'yape' ? 'Yape' : 'Plin');
+    $('prSoles').value = ''; $('prTc').value = state.config.tc; $('prMsg').textContent = '';
+    calcularRecibir();
+    render();
+    $('prSoles').focus();
+  }
+  function dolaresRecibir() {
+    var soles = parseFloat($('prSoles').value), tc = parseFloat($('prTc').value);
+    return soles > 0 && tc > 0 ? Math.round(soles / tc * 100) / 100 : 0;
+  }
+  function calcularRecibir() {
+    $('prDolares').textContent = 'Saldrán ' + dinero(dolaresRecibir(), 'USD') + ' de la Cuenta sueldo, que tiene ' + dinero(state.cuentas.operativa.USD, 'USD') + '.';
+  }
+  $('prSoles').addEventListener('input', calcularRecibir);
+  $('prTc').addEventListener('input', calcularRecibir);
+  $('prForm').addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    var t = state.recibir, usd = dolaresRecibir(), soles = Math.round(parseFloat($('prSoles').value) * 100) / 100;
+    if (!usd) { $('prMsg').textContent = 'Escribe los soles y el tipo de cambio.'; return; }
+    if (usd > state.cuentas.operativa.USD) { $('prMsg').textContent = 'No alcanza: la Cuenta sueldo tiene ' + dinero(state.cuentas.operativa.USD, 'USD') + '.'; return; }
+    var antes = JSON.stringify(state.cuentas);
+    moverSaldo('operativa', 'USD', -usd);
+    moverSaldo(t, 'PEN', soles);
+    state.recibir = null;
+    render();
+    avisar(dinero(soles, 'PEN') + ' recibidos por ' + dinero(usd, 'USD') + '.', function () { state.cuentas = JSON.parse(antes); render(); });
+  });
   document.addEventListener('keydown', function (ev) {
     if (ev.key !== 'Escape') return;
-    if (state.capaDe) state.capaDe = null; else if (state.diaSel) state.diaSel = null; else if (state.verLista) state.verLista = false; else return;
+    if (state.capaDe) state.capaDe = null; else if (state.diaSel) state.diaSel = null; else if (state.verLista) state.verLista = false; else if (state.recibir) state.recibir = null; else return;
     render();
   });
   // Botones de Yape y Plin: ver lo gastado por capa, o resaltar solo sus gastos
@@ -2000,12 +2067,14 @@ body::after { right: 0; transform: scaleY(-1); }
       }
       return;
     }
+    b = ev.target.closest('.recibir');
+    if (b) { abrirRecibir(b.getAttribute('data-t')); return; }
     b = ev.target.closest('.resaltar');
     if (b) { state.medio = state.medio === b.getAttribute('data-t') ? null : b.getAttribute('data-t'); state.diaSel = null; render(); return; }
     // Un clic en un espacio vacio (fuera de botones, campos, listas y ventanas) cierra las ventanas abiertas;
     // si no hay ninguna, deja de resaltar Yape o Plin
     if (ev.target.closest('button, a, input, select, textarea, label, li, .dia, .pop')) return;
-    if (state.diaSel || state.capaDe || state.verLista) { state.diaSel = null; state.capaDe = null; state.verLista = false; render(); }
+    if (state.diaSel || state.capaDe || state.verLista || state.recibir) { state.diaSel = null; state.capaDe = null; state.verLista = false; state.recibir = null; render(); }
     else if (state.medio || state.cat) { state.medio = null; state.cat = null; render(); }
   });
   // Arrastrar las ventanas por su cabecera (en celular quedan fijas abajo)
@@ -2026,6 +2095,7 @@ body::after { right: 0; transform: scaleY(-1); }
   arrastrable($('popHead'), $('pop'));
   arrastrable($('pcHead'), $('popCapa'));
   arrastrable($('plHead'), $('popPeriodo'));
+  arrastrable($('prHead'), $('popRecibir'));
 
   function ajustarMoneda() {
     var solo = SOLO_SOLES.indexOf($('fTarjeta').value) >= 0;
@@ -2271,6 +2341,7 @@ body::after { right: 0; transform: scaleY(-1); }
     if (state.diaSel) { state.diaSel = null; $('pop').hidden = true; }
     if (state.capaDe) { state.capaDe = null; $('popCapa').hidden = true; }
     if (state.verLista) { state.verLista = false; $('popPeriodo').hidden = true; }
+    if (state.recibir) { state.recibir = null; $('popRecibir').hidden = true; }
     document.querySelectorAll('.vista').forEach(function (s) { s.hidden = s.getAttribute('data-vista') !== v; });
     document.querySelectorAll('.tab').forEach(function (b) {
       if (b.getAttribute('data-ir') === v) b.setAttribute('aria-current', 'page');
