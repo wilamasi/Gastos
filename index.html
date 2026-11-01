@@ -251,6 +251,9 @@ body::after { right: 0; transform: scaleY(-1); }
 
 /* Pestañas */
 .app-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+@media (min-width: 821px) { /* el menu queda a la vista al bajar; en celular ya esta fijo abajo */
+  .app-bar { position: sticky; top: 0; z-index: 6; padding-block: 8px; margin-block: -8px; background: var(--bg); box-shadow: 0 6px 6px -6px rgba(0, 0, 0, .12); }
+}
 .tabs { display: flex; gap: 2px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 4px; box-shadow: 0 1px 2px rgba(0, 0, 0, .05); }
 .tab { display: flex; align-items: center; gap: 7px; border: 0; background: none; border-radius: 8px; padding: 6px 14px; min-height: 36px; font-weight: 600; font-size: 14px; color: var(--muted); transition: background-color .15s, color .15s; }
 .tab svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
@@ -285,6 +288,7 @@ body::after { right: 0; transform: scaleY(-1); }
 .deshacer { border: 0; background: none; color: var(--muted); font-size: 12px; padding: 0; align-self: flex-start; text-decoration: underline; }
 .deshacer:hover { color: var(--accent); }
 .filas .num { text-align: right; }
+#pFilas .num { white-space: nowrap; }
 .filas li > span:first-child { white-space: nowrap; }
 .tj .filas li { font-size: 13px; }
 .tj .filas .num { font-size: 13px; }
@@ -380,6 +384,9 @@ body::after { right: 0; transform: scaleY(-1); }
   .pop-head { cursor: default; }
   #popPeriodo .lista li { grid-template-columns: 52px minmax(0, 1fr) auto; }
   #popPeriodo .lista .acciones { grid-column: 2 / -1; justify-self: end; }
+}
+@media (max-width: 360px) {
+  #pFilas li { font-size: 12.5px; gap: 8px; }
 }
 @media (max-width: 460px) {
   .ranking li { grid-template-columns: 16px minmax(0, 1fr) 96px 50px; gap: 8px; padding: 8px 4px; }
@@ -816,7 +823,7 @@ body::after { right: 0; transform: scaleY(-1); }
   // PREVISTOS: gastos de capa 4 en soles { nombre, cat, monto, meses, prox }; prox es mes o dia exacto.
   // INGRESO_FIJO: valor inicial; llega entre el 26 y el 29 y puede variar. Topes: en soles, por periodo.
   var PREVISTOS, INGRESO_FIJO, TOPE_CAPA3, TOPE_RESTAURANTES;
-  var COLCHON_PCT = 0.10, COLCHON_MESES = 2; // aparta 10% de cada ingreso hasta juntar 2 meses de gastos basicos (capas 1 y 2)
+  var COLCHON_PCT = 0.13, COLCHON_MESES = 2; // aparta este % de cada ingreso hasta juntar 2 meses de gastos basicos (capas 1 y 2)
   var PAGA_CON = { t1: 'yape', t4: 'yape', t2: 'plin', t3: 'plin' }; // cuenta que paga en soles cada tarjeta
   var LOCAL = /[?&]local\b/.test(location.search); // index.html?local lee datos-locales.json (no se sube a GitHub)
   var CAT_NOMBRE = {}, CAPA_DE_CAT = {};
@@ -955,6 +962,7 @@ body::after { right: 0; transform: scaleY(-1); }
   // Colchon: Cuenta sueldo + Yape + Plin, menos los estados ya cerrados que debe pagar el sueldo recibido,
   // la Reserva y los bolsillos. Si ese sueldo aun no llega, los estados no se restan; tampoco el ciclo
   // abierto: los paga un sueldo futuro. Contra 2 meses de gastos basicos.
+  function etiquetaColchon() { return 'Colchón (' + Math.round(COLCHON_PCT * 100) + '%)'; }
   function colchon() {
     var pm = promMensual(), tope = (pm[1] + pm[2]) * COLCHON_MESES;
     var ini = inicioPeriodo(new Date()), rec = fijoRecibido(ymd(ini), ymd(finPeriodo(ini)));
@@ -1254,7 +1262,7 @@ body::after { right: 0; transform: scaleY(-1); }
 
   // Reparto sugerido, en orden de pago.
   // Ingreso fijo: soles a Yape y Plin (tarjetas que pagan y bolsillo), dolares de las tarjetas, provision de la capa 4,
-  // 10% al colchon; el resto es sobrante.
+  // el % del colchon; el resto es sobrante.
   // Freelance: completa el colchon y el resto es sobrante.
   function renderReparto() {
     var x = state.reparto;
@@ -1285,7 +1293,7 @@ body::after { right: 0; transform: scaleY(-1); }
       });
       if (dolares) paso('Tarjetas en dólares', convA(dolares, 'USD', mon), 'USD');
       paso('Reserva', convA(promMensual()[4], state.moneda, mon));
-      paso(col.lleno ? 'Colchón (ya está lleno)' : 'Colchón (10%)', col.lleno ? 0 : Math.min(x.monto * COLCHON_PCT, faltaCol));
+      paso(col.lleno ? 'Colchón (ya está lleno)' : etiquetaColchon(), col.lleno ? 0 : Math.min(x.monto * COLCHON_PCT, faltaCol));
       if (deficit > 0) rows.push(['Faltan para tarjetas', dinero(deficit, mon)]);
     } else {
       paso(col.lleno ? 'Colchón (ya está lleno)' : 'Completar el colchón', faltaCol);
@@ -1369,13 +1377,13 @@ body::after { right: 0; transform: scaleY(-1); }
     }[sem] || '';
     filas($('pFilas'), [
       [p.recibido ? 'Ingreso fijo recibido' : 'Ingreso fijo esperado', dinero(p.fijo)],
-      ['Colchón (10%)', p.aporte ? '− ' + dinero(p.aporte) : 'Lleno, no aplica'],
+      [etiquetaColchon(), p.aporte ? '− ' + dinero(p.aporte) : 'Lleno, no aplica'],
       ['Reserva (capa 4)', '− ' + dinero(p.reserva)],
       ['Capa 1 proyectada', '− ' + dinero(proy1)],
       ['Capa 2 proyectada', '− ' + dinero(proy2)],
       ['Presupuesto capa 3', dinero(paraCapa3), true],
       ['Tope de capa 3', dinero(tope)],
-      ['Capa 3 gastada', '− ' + dinero(act[3])],
+      ['Capa 3 gastada a la fecha', '− ' + dinero(act[3])],
       ['Sobrante para ahorrar', dinero(Math.max(0, paraCapa3 - tope))],
       ['Proyección al cierre', dinero(proy)]
     ]);
@@ -1392,7 +1400,7 @@ body::after { right: 0; transform: scaleY(-1); }
       h('div', { class: 'capa-head' }, h('b', { text: 'Colchón' }), h('span', { class: 'num', text: dinero(col.saldo) })),
       h('div', { class: 'barra' }, h('i', { style: 'width:' + Math.min(100, pctCol).toFixed(1) + '%' })),
       h('small', { text: col.lleno ? 'Lleno: ya tienes 2 meses de gastos básicos (' + dinero(col.tope) + ').'
-        : Math.round(pctCol) + '% de ' + dinero(col.tope) + ' (2 meses de gastos básicos). Aparta el 10% de cada ingreso.' })));
+        : Math.round(pctCol) + '% de ' + dinero(col.tope) + ' (2 meses de gastos básicos). Aparta el ' + Math.round(COLCHON_PCT * 100) + '% de cada ingreso.' })));
     if (costo > 0) rc.appendChild(h('p', { class: 'hint', text: 'Tu ingreso fijo cubre el ' + Math.round(conv(fe.monto, fe.moneda) / costo * 100) +
       '% de tu costo de vida (' + dinero(costo) + ' al mes, promedio de 90 días más lo que apartas para la capa 4).' }));
 
