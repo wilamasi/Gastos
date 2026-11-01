@@ -109,6 +109,9 @@ button { cursor: pointer; }
 .dia .n { font-size: 12px; font-weight: 600; display: flex; gap: 4px; align-items: baseline; }
 .dia .n em { font-style: normal; font-weight: 500; color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .04em; }
 .dia .m { font-family: var(--f-num); font-variant-numeric: tabular-nums; font-size: 11px; text-align: right; overflow: hidden; white-space: nowrap; }
+.dia .m > span { display: block; }
+.dia .m .corto { display: none; }
+.usd { color: color-mix(in srgb, var(--accent) 70%, var(--ink)); font-weight: 600; }
 .dia.hoy .n span { text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px; text-decoration-color: var(--accent); }
 .dia[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
 .cal-pie { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; border-top: 1px solid var(--line); padding-top: 12px; font-size: 13px; color: var(--muted); }
@@ -439,6 +442,8 @@ body::after { right: 0; transform: scaleY(-1); }
   .panel { padding: 14px; }
   .dia { min-height: 48px; padding: 4px 3px; }
   .dia .m { font-size: 10px; }
+  .dia .m .largo { display: none; }
+  .dia .m .corto { display: inline; }
   .dia .n em { display: none; }
   .lista li { grid-template-columns: 52px minmax(0, 1fr) auto; }
   .lista .borrar { grid-column: 2 / -1; justify-self: end; padding-block: 0; }
@@ -900,9 +905,9 @@ body::after { right: 0; transform: scaleY(-1); }
 
   function simbolo(mon) { return (mon || state.moneda) === 'PEN' ? 'S/ ' : '$'; }
   function dinero(n, mon) { return simbolo(mon) + fmtNum.format(n || 0); }
-  function dineroCorto(n) {
-    if (n >= 1000) return simbolo() + (n / 1000).toFixed(1) + 'k'; // 4 cifras no caben en la casilla del dia
-    return simbolo() + Math.round(n);
+  function dineroCorto(n, mon) {
+    if (n >= 1000) return simbolo(mon) + (n / 1000).toFixed(1) + 'k'; // 4 cifras no caben en la casilla del dia
+    return simbolo(mon) + Math.round(n);
   }
   function pad(n) { return (n < 10 ? '0' : '') + n; }
   function ymd(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
@@ -972,6 +977,13 @@ body::after { right: 0; transform: scaleY(-1); }
     });
   }
   function suma(arr) { return arr.reduce(function (s, g) { return s + (Number(g.monto) || 0); }, 0); }
+  // Total de cada moneda por separado, sin convertir
+  function totalPorMoneda(arr) {
+    return ['PEN', 'USD'].map(function (mon) {
+      var t = suma(arr.filter(function (g) { return monedaDe(g) === mon; }));
+      return t ? dinero(t, mon) : '';
+    }).filter(Boolean).join(' · ') || dinero(0);
+  }
   // Convierte entre monedas con el tipo de cambio (TC, arriba junto a Soles y Dólares)
   function convA(n, de, a) {
     if (de === a) return n;
@@ -1178,8 +1190,8 @@ body::after { right: 0; transform: scaleY(-1); }
     });
     $('estado').textContent =
       state.modo === 'cargando' ? 'Conectando…' :
-      state.modo === 'nube' ? gp.length + (gp.length === 1 ? ' gasto' : ' gastos') + ' · guardado en tu cuenta' :
-      gp.length + (gp.length === 1 ? ' gasto' : ' gastos') + (state.modo === 'local' ? ' · datos locales' : ' · sin conexión');
+      state.modo === 'nube' ? todos.length + (todos.length === 1 ? ' gasto' : ' gastos') + ' · guardado en tu cuenta' :
+      todos.length + (todos.length === 1 ? ' gasto' : ' gastos') + (state.modo === 'local' ? ' · datos locales' : ' · sin conexión');
     if (state.medio) $('estado').textContent += ' · solo ' + state.nombres[TARJETAS.indexOf(state.medio)];
     if (state.cat) $('estado').textContent += ' · solo ' + CAT_NOMBRE[state.cat];
 
@@ -1187,11 +1199,11 @@ body::after { right: 0; transform: scaleY(-1); }
     renderTarjetas(gpTj, suma(gpTj), todosTj);
     renderPopCapa();
     renderRanking();
-    renderCalendario(gp, total);
+    renderCalendario(todos, total);
     renderMatriz(gp);
-    renderLista(gp);
+    renderLista(todos);
     renderPopCapa4();
-    renderPop(gp);
+    renderPop(todos);
 
     var pend = pendientes();
     renderResumen(pend);
@@ -1676,17 +1688,26 @@ body::after { right: 0; transform: scaleY(-1); }
     });
   }
 
-  function renderCalendario(gp, total) {
+  // Cada dia muestra sus soles y dolares sin convertir; el tipo de cambio solo se usa para el tono de fondo.
+  // Los datos de abajo (dias con gasto, promedio, dia mayor) siguen en la moneda elegida
+  function renderCalendario(todos, total) {
     var cal = $('cal');
     cal.textContent = '';
     ['L', 'M', 'X', 'J', 'V', 'S', 'D'].forEach(function (d) { cal.appendChild(h('div', { class: 'dow', text: d })); });
 
     var porDia = {};
-    gp.forEach(function (g) { var f = fechaCiclo(g); porDia[f] = (porDia[f] || 0) + (Number(g.monto) || 0); });
-    var max = 0, maxKey = null, dias = 0;
+    todos.forEach(function (g) {
+      var f = fechaCiclo(g);
+      porDia[f] = porDia[f] || { PEN: 0, USD: 0 };
+      porDia[f][monedaDe(g)] += Number(g.monto) || 0;
+    });
+    function peso(x) { return x ? conv(x.PEN, 'PEN') + conv(x.USD, 'USD') : 0; }
+    var max = 0, maxKey = null, dias = 0, maxPeso = 0;
     Object.keys(porDia).forEach(function (k) {
-      if (porDia[k] > 0) dias++;
-      if (porDia[k] > max) { max = porDia[k]; maxKey = k; }
+      var v = porDia[k][state.moneda];
+      if (v > 0) dias++;
+      if (v > max) { max = v; maxKey = k; }
+      maxPeso = Math.max(maxPeso, peso(porDia[k]));
     });
 
     var ini = state.inicio, fin = finPeriodo(ini);
@@ -1698,19 +1719,24 @@ body::after { right: 0; transform: scaleY(-1); }
     for (var d = new Date(ini); d <= fin; d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1)) {
       nDias++;
       var key = ymd(d);
-      var m = porDia[key] || 0;
-      var heat = max > 0 ? Math.round((m / max) * 38) : 0;
+      var m = porDia[key] || { PEN: 0, USD: 0 }, v = peso(m);
+      var heat = maxPeso > 0 ? Math.round((v / maxPeso) * 38) : 0;
       var mostrarMes = d.getDate() === CORTE || d.getDate() === 1;
       var btn = h('button', {
         type: 'button',
         class: 'dia' + (key === hoyKey ? ' hoy' : ''),
         'aria-pressed': state.diaSel === key ? 'true' : 'false',
-        'aria-label': fmtDia.format(d) + ': ' + dinero(m),
-        style: m > 0 ? 'background: color-mix(in srgb, var(--accent) ' + (heat + 6) + '%, var(--surface))' : null,
+        'aria-label': fmtDia.format(d) + ': ' + (v > 0 ? [m.PEN ? dinero(m.PEN, 'PEN') : '', m.USD ? dinero(m.USD, 'USD') : ''].filter(Boolean).join(' y ') : dinero(0)),
+        style: v > 0 ? 'background: color-mix(in srgb, var(--accent) ' + (heat + 6) + '%, var(--surface))' : null,
         'data-dia': key
       },
         h('span', { class: 'n' }, h('span', { text: String(d.getDate()) }), mostrarMes ? h('em', { text: fmtMes.format(d).replace('.', '') }) : null),
-        h('span', { class: 'm', text: m > 0 ? dineroCorto(m) : '' })
+        h('span', { class: 'm' },
+          // En celular no cabe el simbolo: los soles van solo con la cifra y los dolares con $
+          m.PEN ? h('span', {}, h('span', { class: 'largo', text: dineroCorto(m.PEN, 'PEN') }),
+            h('span', { class: 'corto', text: dineroCorto(m.PEN, 'PEN').replace(simbolo('PEN'), '') })) : null,
+          m.USD ? h('span', { class: 'usd' }, h('span', { class: 'largo', text: m.USD < 100 ? dinero(m.USD, 'USD') : dineroCorto(m.USD, 'USD') }),
+            h('span', { class: 'corto', text: dineroCorto(m.USD, 'USD') })) : null)
       );
       cal.appendChild(btn);
     }
@@ -1783,7 +1809,7 @@ body::after { right: 0; transform: scaleY(-1); }
           h('span', { class: 'dot', style: '--c: var(--c' + (i + 1) + ')' }),
           h('span', { class: 'txt', text: (state.nombres[i] || 'Tarjeta') + (g.nota ? ' · ' + g.nota : '') }),
           g.proceso ? h('em', { class: 'sig', text: '· ocurrido el ' + fmtDia.format(deYmd(g.fecha)) }) : null)),
-      h('span', { class: 'num', text: dinero(Number(g.monto)) }),
+      h('span', { class: 'num' + (monedaDe(g) === 'USD' ? ' usd' : ''), text: dinero(Number(g.monto), monedaDe(g)) }),
       corta ? h('span', { class: 'acciones' },
         h('button', { type: 'button', class: 'borrar editar', 'data-id': g.id, text: 'Editar' }),
         h('button', { type: 'button', class: 'borrar', 'data-id': g.id, text: 'Borrar' })) : h('span', { class: 'acciones' },
@@ -1792,14 +1818,14 @@ body::after { right: 0; transform: scaleY(-1); }
         h('button', { type: 'button', class: 'borrar', 'data-id': g.id, text: 'Borrar' })));
   }
 
-  function renderPop(gp) {
+  function renderPop(todos) {
     var pop = $('pop');
     pop.hidden = !state.diaSel;
     if (!state.diaSel) return;
-    var items = gp.filter(function (g) { return fechaCiclo(g) === state.diaSel; });
+    var items = todos.filter(function (g) { return fechaCiclo(g) === state.diaSel; });
     $('popTitulo').textContent = '';
     $('popTitulo').appendChild(document.createTextNode('Gastos del ' + fmtDia.format(deYmd(state.diaSel))));
-    $('popTitulo').appendChild(h('span', { class: 'num', text: dinero(suma(items)) }));
+    $('popTitulo').appendChild(h('span', { class: 'num', text: totalPorMoneda(items) }));
     var ul = $('popLista');
     ul.textContent = '';
     if (!items.length) ul.appendChild(h('li', { style: 'display:block;border:0' }, h('p', { class: 'vacio', text: 'No hay gastos este día.' })));
@@ -2003,20 +2029,20 @@ body::after { right: 0; transform: scaleY(-1); }
     cuerpo.appendChild(ul);
   }
 
-  function renderLista(gp) {
+  function renderLista(todos) {
     var ul = $('lista');
     ul.textContent = '';
-    $('btnLista').textContent = 'Gastos del periodo · ' + gp.length;
+    $('btnLista').textContent = 'Gastos del periodo · ' + todos.length;
     $('popPeriodo').hidden = !state.verLista;
     $('plTitulo').textContent = 'Gastos del periodo';
-    $('plTitulo').appendChild(h('span', { class: 'num', text: dinero(suma(gp)) }));
-    if (!gp.length) {
+    $('plTitulo').appendChild(h('span', { class: 'num', text: totalPorMoneda(todos) }));
+    if (!todos.length) {
       ul.appendChild(h('li', { style: 'display:block;border:0;padding:0' },
         h('p', { class: 'vacio', text: state.modo === 'cargando' ? 'Cargando tus gastos…' :
           'Aún no hay gastos en este periodo. Registra el primero con el formulario.' })));
       return;
     }
-    gp.slice().sort(function (a, b) {
+    todos.slice().sort(function (a, b) {
       var fa = fechaCiclo(a), fb = fechaCiclo(b);
       if (fa !== fb) return fa < fb ? 1 : -1;
       return String(b.creado || '').localeCompare(String(a.creado || ''));
