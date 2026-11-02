@@ -243,6 +243,12 @@ td.cero { color: var(--muted); opacity: .6; }
 #c4Lista .c4-atraso { color: var(--danger); font-weight: 600; }
 .ver-capa4 { min-height: 32px; padding: 4px 6px; font-size: 13px; white-space: nowrap; }
 .pop-ancho { width: min(620px, calc(100vw - 32px)); }
+.ver-confirmar { align-self: flex-start; max-width: 100%; color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); background: color-mix(in srgb, var(--warn) 10%, var(--surface)); font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ver-confirmar[hidden] { display: none; }
+#cfLista .d b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#cfLista .d .cf-aviso { color: var(--warn); font-weight: 600; }
+#cfLista .acciones { grid-column: 1 / -1; justify-self: end; }
+#cfLista .cf-si { color: var(--accent); font-weight: 600; }
 #popPeriodo .lista li { grid-template-columns: 52px minmax(0, 1fr) auto auto; }
 .ver-lista { margin-left: auto; white-space: nowrap; }
 .recibir { white-space: nowrap; }
@@ -484,6 +490,7 @@ body::after { right: 0; transform: scaleY(-1); }
         <span class="eyebrow" id="pEtiqueta">Aún puedes gastar</span>
         <div class="grande num" id="pQueda">—</div>
         <p class="frase" id="pFrase"></p>
+        <button class="btn ver-confirmar" id="pConfirmar" type="button" hidden></button>
         <ul class="filas" id="pFilas"></ul>
         <p class="hint" id="pNota"></p>
       </section>
@@ -732,6 +739,14 @@ body::after { right: 0; transform: scaleY(-1); }
     <ul class="lista" id="lista"></ul>
   </div>
 
+  <div class="pop pop-ancho" id="popConfirmar" role="dialog" aria-labelledby="cfTitulo" hidden>
+    <div class="pop-head" id="cfHead">
+      <h2 id="cfTitulo">Por confirmar</h2>
+      <button class="pop-cerrar" id="cfCerrar" type="button" aria-label="Cerrar">×</button>
+    </div>
+    <ul class="lista" id="cfLista"></ul>
+  </div>
+
   <div class="pop" id="popCapa4" role="dialog" aria-labelledby="c4Titulo" hidden>
     <div class="pop-head" id="c4Head">
       <h2 id="c4Titulo">Calendario de capa 4</h2>
@@ -956,6 +971,8 @@ body::after { right: 0; transform: scaleY(-1); }
     capaDe: null, // { t, ini }: ventana con lo gastado por capa con Yape o Plin
     verLista: false, // ventana con todos los gastos del periodo
     verCapa4: false, // ventana con el calendario de la capa 4
+    porConfirmar: [], // gastos que dejo el agente; no cuentan en los saldos hasta confirmarlos
+    verConfirmar: false,
     c4Anio: 0, c4Ciclo: null, // año a la vista y ciclo tocado ('2027-01': el que empieza en enero)
     recibir: null, // 'yape' o 'plin': ventana para registrar lo que llega de la Cuenta sueldo
     pagados: {}, // estados de cuenta pagados antes de su fecha: 'tarjeta|fechaDePago' -> dia del pago
@@ -978,10 +995,10 @@ body::after { right: 0; transform: scaleY(-1); }
   }
   function suma(arr) { return arr.reduce(function (s, g) { return s + (Number(g.monto) || 0); }, 0); }
   // Total de cada moneda por separado, sin convertir
-  function totalPorMoneda(arr) {
+  function totalPorMoneda(arr, fmt) {
     return ['PEN', 'USD'].map(function (mon) {
       var t = suma(arr.filter(function (g) { return monedaDe(g) === mon; }));
-      return t ? dinero(t, mon) : '';
+      return t ? (fmt || dinero)(t, mon) : '';
     }).filter(Boolean).join(' · ') || dinero(0);
   }
   // Convierte entre monedas con el tipo de cambio (TC, arriba junto a Soles y Dólares)
@@ -1203,6 +1220,7 @@ body::after { right: 0; transform: scaleY(-1); }
     renderMatriz(gp);
     renderLista(todos);
     renderPopCapa4();
+    renderPopConfirmar();
     renderPop(todos);
 
     var pend = pendientes();
@@ -2029,6 +2047,42 @@ body::after { right: 0; transform: scaleY(-1); }
     cuerpo.appendChild(ul);
   }
 
+  function porConfirmar() { return state.porConfirmar.filter(function (x) { return x.estado === 'pendiente'; }); }
+  // Mientras tambien se anota a mano, un gasto igual ya registrado puede ser el mismo
+  function yaAnotado(x) {
+    return state.gastos.some(function (g) {
+      return g.fecha === x.fecha && g.tarjeta === x.tarjeta && monedaDe(g) === monedaDe(x) && Number(g.monto) === Number(x.monto);
+    });
+  }
+  function renderAvisoConfirmar() {
+    var items = porConfirmar(), gastos = items.filter(function (x) { return x.tipo !== 'devolucion'; }), b = $('pConfirmar');
+    b.hidden = !items.length;
+    b.textContent = items.length + ' por confirmar' + (gastos.length ? ' · ' + totalPorMoneda(gastos, dineroCorto) : '');
+  }
+  function renderPopConfirmar() {
+    var items = porConfirmar();
+    if (!items.length) state.verConfirmar = false;
+    renderAvisoConfirmar();
+    $('popConfirmar').hidden = !state.verConfirmar;
+    if (!state.verConfirmar) return;
+    var ul = $('cfLista');
+    ul.textContent = '';
+    items.forEach(function (x) {
+      var i = TARJETAS.indexOf(x.tarjeta), dev = x.tipo === 'devolucion', falta = i < 0 || !CAT_NOMBRE[x.cat];
+      ul.appendChild(h('li', {},
+        h('div', { class: 'd' },
+          h('b', { text: x.comercio || 'Sin comercio' }),
+          h('span', { text: fmtDia.format(deYmd(x.fecha)) + ' · ' + (state.nombres[i] || 'Sin tarjeta') + ' · ' + (CAT_NOMBRE[x.cat] || 'Sin tipo de gasto') }),
+          dev ? h('span', { class: 'cf-aviso', text: 'Devolución: corrige el gasto original' }) :
+          yaAnotado(x) ? h('span', { class: 'cf-aviso', text: 'Parece que ya lo anotaste' }) : null),
+        h('span', { class: 'num' + (monedaDe(x) === 'USD' ? ' usd' : ''), text: dinero(Number(x.monto), monedaDe(x)) }),
+        h('span', { class: 'acciones' },
+          h('button', { type: 'button', class: 'borrar', 'data-accion': 'descartar', 'data-id': x.id, text: dev ? 'Ya lo revisé' : 'Descartar' }),
+          dev ? null : h('button', { type: 'button', class: 'borrar', 'data-accion': 'editar', 'data-id': x.id, text: 'Editar' }),
+          dev ? null : h('button', { type: 'button', class: 'borrar cf-si', 'data-accion': falta ? 'editar' : 'confirmar', 'data-id': x.id, text: 'Confirmar' }))));
+    });
+  }
+
   function renderLista(todos) {
     var ul = $('lista');
     ul.textContent = '';
@@ -2069,7 +2123,7 @@ body::after { right: 0; transform: scaleY(-1); }
   var SUPABASE_URL = 'https://xwxlmfcbtkcqnghjszyw.supabase.co';
   var SUPABASE_KEY = 'sb_publishable_Ldsr51zS8gWRW20uQ17BEg_14cfzoyM';
   var sb = null, uid = null, refrescoId = null;
-  var firmaGastos = '', firmaDatos = '', ultimoGuardado = '', guardando = 0;
+  var firmaGastos = '', firmaDatos = '', firmaConfirmar = '', ultimoGuardado = '', guardando = 0;
 
   function chk(r) { if (r && r.error) throw r.error; return r; }
 
@@ -2113,11 +2167,13 @@ body::after { right: 0; transform: scaleY(-1); }
   }
   function cargar() {
     if (!sb || !uid) return Promise.resolve();
-    return Promise.all([traerGastos(0, []), sb.from('ajustes').select('datos').maybeSingle().then(chk)]).then(function (v) {
-      var r = v[0], d = v[1].data ? v[1].data.datos : {}, fg = JSON.stringify(r), fd = JSON.stringify(d);
+    return Promise.all([traerGastos(0, []), sb.from('ajustes').select('datos').maybeSingle().then(chk),
+      sb.from('por_confirmar').select('*').eq('estado', 'pendiente').order('fecha').then(chk)]).then(function (v) {
+      var r = v[0], d = v[1].data ? v[1].data.datos : {}, fg = JSON.stringify(r), fd = JSON.stringify(d), fc = JSON.stringify(v[2].data);
       // Sin cambios no se redibuja: asi no se borra lo que estas escribiendo
-      if (guardando || (state.modo === 'nube' && fg === firmaGastos && fd === firmaDatos)) return;
-      firmaGastos = fg; firmaDatos = fd;
+      if (guardando || (state.modo === 'nube' && fg === firmaGastos && fd === firmaDatos && fc === firmaConfirmar)) return;
+      firmaGastos = fg; firmaDatos = fd; firmaConfirmar = fc;
+      state.porConfirmar = v[2].data;
       state.gastos = r.map(function (x) {
         return { id: x.id, fecha: String(x.fecha || ''), monto: Number(x.monto) || 0, tarjeta: x.tarjeta, cat: x.cat, nota: x.nota ? String(x.nota) : '', moneda: x.moneda, creado: x.creado, proceso: x.proceso || '' };
       });
@@ -2141,6 +2197,13 @@ body::after { right: 0; transform: scaleY(-1); }
       var fila = Object.assign({}, c);
       if ('proceso' in fila) fila.proceso = fila.proceso || null; // requiere la columna proceso en Supabase
       return sb.from('gastos').update(fila).eq('id', id).then(chk).then(cargar);
+    },
+    marcar: function (id, estado) {
+      return sb.from('por_confirmar').update({ estado: estado }).eq('id', id).then(chk).then(function () {
+        // Sale de la lista aunque cargar() se salte por un guardado en curso
+        state.porConfirmar.forEach(function (x) { if (x.id === id) x.estado = estado; });
+        return cargar();
+      });
     }
   };
 
@@ -2160,7 +2223,7 @@ body::after { right: 0; transform: scaleY(-1); }
     } else {
       uid = null;
       if (refrescoId) { clearInterval(refrescoId); refrescoId = null; }
-      state.gastos = []; aplicarDatos({}); firmaGastos = firmaDatos = ''; state.modo = 'cargando'; render();
+      state.gastos = []; state.porConfirmar = []; aplicarDatos({}); firmaGastos = firmaDatos = firmaConfirmar = ''; state.modo = 'cargando'; render();
       mostrarLogin('');
     }
   }
@@ -2251,6 +2314,55 @@ body::after { right: 0; transform: scaleY(-1); }
   $('pcCerrar').addEventListener('click', function () { state.capaDe = null; render(); });
   $('plCerrar').addEventListener('click', function () { state.verLista = false; render(); });
   $('c4Cerrar').addEventListener('click', function () { state.verCapa4 = false; render(); });
+  $('cfCerrar').addEventListener('click', function () { state.verConfirmar = false; render(); });
+  $('pConfirmar').addEventListener('click', function () {
+    state.verConfirmar = !state.verConfirmar;
+    state.capaDe = null; state.verCapa4 = false; state.recibir = null;
+    render();
+  });
+  // Anota el gasto en Gastos, con sus efectos en los saldos, y lo saca de la bandeja
+  function confirmarGasto(x, c, b) {
+    if (!store) return;
+    var g = Object.assign({ creado: new Date().toISOString(), proceso: '' }, c);
+    if (b) b.disabled = true;
+    store.add(g).then(function () { return store.marcar(x.id, 'confirmado'); }).then(function () {
+      efectoGasto(g, 1);
+      render();
+      avisar('Gasto confirmado. Si te equivocaste, puedes editarlo en Gastos.');
+    }).catch(function (e) { if (b) b.disabled = false; mensaje(textoError(e), true); });
+  }
+  $('cfLista').addEventListener('click', function (ev) {
+    if (ev.target.closest('[data-cancelar]')) { render(); return; }
+    var b = ev.target.closest('[data-accion]');
+    if (!b) return;
+    var id = b.getAttribute('data-id'), accion = b.getAttribute('data-accion');
+    var x = state.porConfirmar.filter(function (o) { return o.id === id; })[0];
+    if (accion === 'editar') {
+      var li = b.closest('li');
+      li.textContent = '';
+      li.className = 'editando';
+      li.appendChild(formEditar({ id: x.id, monto: x.monto, moneda: x.moneda, fecha: x.fecha, tarjeta: x.tarjeta || ORDEN[0], cat: CAT_NOMBRE[x.cat] ? x.cat : 'sin_detalle', nota: x.comercio }));
+      return;
+    }
+    if (accion === 'confirmar') {
+      confirmarGasto(x, { fecha: x.fecha, monto: Number(x.monto), moneda: monedaDe(x), tarjeta: x.tarjeta, cat: x.cat, nota: x.comercio.slice(0, 120) }, b);
+      return;
+    }
+    b.disabled = true;
+    store.marcar(id, 'descartado').then(function () {
+      render();
+      avisar('Movimiento descartado.', function () { store.marcar(id, 'pendiente').then(render).catch(function (e) { mensaje(textoError(e), true); }); });
+    }).catch(function (e) { b.disabled = false; mensaje(textoError(e), true); });
+  });
+  $('cfLista').addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    var f = ev.target.elements, id = ev.target.getAttribute('data-id');
+    var x = state.porConfirmar.filter(function (o) { return o.id === id; })[0];
+    var monto = Math.round(parseFloat(f.monto.value) * 100) / 100;
+    if (!(monto > 0) || !/^\d{4}-\d{2}-\d{2}$/.test(f.fecha.value)) { mensaje('Revisa el monto y la fecha.', true); return; }
+    confirmarGasto(x, { fecha: f.fecha.value, monto: monto, tarjeta: f.tarjeta.value, cat: f.cat.value,
+      moneda: SOLO_SOLES.indexOf(f.tarjeta.value) >= 0 ? 'PEN' : f.moneda.value, nota: f.nota.value.trim().slice(0, 120) }, ev.target.querySelector('[type=submit]'));
+  });
   $('c4Cuerpo').addEventListener('click', function (ev) {
     var b = ev.target.closest('[data-anio], [data-ciclo]');
     if (!b) return;
@@ -2266,6 +2378,7 @@ body::after { right: 0; transform: scaleY(-1); }
   // Solo registra el movimiento: la transferencia real se hace en el banco
   function abrirRecibir(t) {
     state.recibir = t;
+    state.verConfirmar = false;
     $('prTitulo').textContent = 'Recibir en ' + (t === 'yape' ? 'Yape' : 'Plin');
     $('prSoles').value = ''; $('prTc').value = state.config.tc; $('prMsg').textContent = '';
     calcularRecibir();
@@ -2295,7 +2408,7 @@ body::after { right: 0; transform: scaleY(-1); }
   });
   document.addEventListener('keydown', function (ev) {
     if (ev.key !== 'Escape') return;
-    if (state.capaDe) state.capaDe = null; else if (state.diaSel) state.diaSel = null; else if (state.verLista) state.verLista = false; else if (state.verCapa4) state.verCapa4 = false; else if (state.recibir) state.recibir = null; else return;
+    if (state.capaDe) state.capaDe = null; else if (state.diaSel) state.diaSel = null; else if (state.verLista) state.verLista = false; else if (state.verCapa4) state.verCapa4 = false; else if (state.verConfirmar) state.verConfirmar = false; else if (state.recibir) state.recibir = null; else return;
     render();
   });
   // Botones de Yape y Plin: ver lo gastado por capa, o resaltar solo sus gastos
@@ -2304,7 +2417,7 @@ body::after { right: 0; transform: scaleY(-1); }
     if (b) {
       var t = b.getAttribute('data-t');
       state.capaDe = state.capaDe && state.capaDe.t === t ? null : { t: t, ini: b.getAttribute('data-ini') === 'hoy' ? inicioPeriodo(new Date()) : state.inicio };
-      state.diaSel = null; state.verLista = false; state.verCapa4 = false;
+      state.diaSel = null; state.verLista = false; state.verCapa4 = false; state.verConfirmar = false;
       var r = b.getBoundingClientRect(); // antes de redibujar, que reemplaza el boton
       render();
       // En computadora la ventana aparece debajo del boton, sin tapar el recuadro
@@ -2321,7 +2434,7 @@ body::after { right: 0; transform: scaleY(-1); }
     if (b) { abrirRecibir(b.getAttribute('data-t')); return; }
     if (ev.target.closest('.ver-capa4')) {
       state.verCapa4 = !state.verCapa4; state.c4Anio = inicioPeriodo(new Date()).getFullYear(); state.c4Ciclo = null;
-      state.diaSel = null; state.capaDe = null; state.verLista = false;
+      state.diaSel = null; state.capaDe = null; state.verLista = false; state.verConfirmar = false;
       render();
       return;
     }
@@ -2330,7 +2443,7 @@ body::after { right: 0; transform: scaleY(-1); }
     // Un clic en un espacio vacio (fuera de botones, campos, listas y ventanas) cierra las ventanas abiertas;
     // si no hay ninguna, deja de resaltar Yape o Plin
     if (ev.target.closest('button, a, input, select, textarea, label, li, .dia, .pop')) return;
-    if (state.diaSel || state.capaDe || state.verLista || state.verCapa4 || state.recibir) { state.diaSel = null; state.capaDe = null; state.verLista = false; state.verCapa4 = false; state.recibir = null; render(); }
+    if (state.diaSel || state.capaDe || state.verLista || state.verCapa4 || state.verConfirmar || state.recibir) { state.diaSel = null; state.capaDe = null; state.verLista = false; state.verCapa4 = false; state.verConfirmar = false; state.recibir = null; render(); }
     else if (state.medio || state.cat) { state.medio = null; state.cat = null; render(); }
   });
   // Arrastrar las ventanas por su cabecera (en celular quedan fijas abajo)
@@ -2352,6 +2465,7 @@ body::after { right: 0; transform: scaleY(-1); }
   arrastrable($('pcHead'), $('popCapa'));
   arrastrable($('plHead'), $('popPeriodo'));
   arrastrable($('c4Head'), $('popCapa4'));
+  arrastrable($('cfHead'), $('popConfirmar'));
   arrastrable($('prHead'), $('popRecibir'));
 
   function ajustarMoneda() {
@@ -2621,6 +2735,7 @@ body::after { right: 0; transform: scaleY(-1); }
     if (state.capaDe) { state.capaDe = null; $('popCapa').hidden = true; }
     if (state.verLista) { state.verLista = false; $('popPeriodo').hidden = true; }
     if (state.verCapa4) { state.verCapa4 = false; $('popCapa4').hidden = true; }
+    if (state.verConfirmar) { state.verConfirmar = false; $('popConfirmar').hidden = true; }
     if (state.recibir) { state.recibir = null; $('popRecibir').hidden = true; }
     document.querySelectorAll('.vista').forEach(function (s) { s.hidden = s.getAttribute('data-vista') !== v; });
     document.querySelectorAll('.tab').forEach(function (b) {
@@ -2721,7 +2836,8 @@ body::after { right: 0; transform: scaleY(-1); }
     return {
       add: function (g) { g.id = 'mem' + Date.now(); state.gastos.push(g); render(); return Promise.resolve(); },
       remove: function (id) { state.gastos = state.gastos.filter(function (g) { return g.id !== id; }); render(); return Promise.resolve(); },
-      update: function (id, c) { state.gastos.forEach(function (g) { if (g.id === id) Object.assign(g, c); }); render(); return Promise.resolve(); }
+      update: function (id, c) { state.gastos.forEach(function (g) { if (g.id === id) Object.assign(g, c); }); render(); return Promise.resolve(); },
+      marcar: function (id, estado) { state.porConfirmar.forEach(function (x) { if (x.id === id) x.estado = estado; }); render(); return Promise.resolve(); }
     };
   }
 
@@ -2734,6 +2850,7 @@ body::after { right: 0; transform: scaleY(-1); }
       state.gastos = d.gastos.map(function (g, i) {
         return { id: 'local' + i, fecha: g.fecha, monto: g.monto, moneda: g.moneda, tarjeta: g.tarjeta, cat: g.cat, nota: g.nota || '', creado: '', proceso: g.proceso || '' };
       });
+      state.porConfirmar = d.porConfirmar || [];
       aplicarDatos(d);
       render();
     }).catch(function () { mensaje('No se pudo leer datos-locales.json.', true); });
