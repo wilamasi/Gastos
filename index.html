@@ -2337,6 +2337,14 @@ body::after { right: 0; transform: scaleY(-1); }
     if (!b) return;
     var id = b.getAttribute('data-id'), accion = b.getAttribute('data-accion');
     var x = state.porConfirmar.filter(function (o) { return o.id === id; })[0];
+    // Confirmar y descartar piden un segundo clic, como Borrar
+    if (accion !== 'editar' && !b.classList.contains('confirma')) {
+      var antes = b.textContent;
+      b.classList.add('confirma');
+      b.textContent = accion === 'confirmar' ? '¿Confirmar? Sí' : '¿' + antes + '? Sí';
+      setTimeout(function () { if (b.isConnected) { b.classList.remove('confirma'); b.textContent = antes; } }, 4000);
+      return;
+    }
     if (accion === 'editar') {
       var li = b.closest('li');
       li.textContent = '';
