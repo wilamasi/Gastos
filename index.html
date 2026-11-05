@@ -268,6 +268,11 @@ td.cero { color: var(--muted); opacity: .6; }
 .form-edit { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .form-edit .ancho { grid-column: 1 / -1; }
 .form-edit .botones { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 8px; }
+.form-edit[hidden] { display: none; }
+#rpForm { margin: 10px 0 4px; }
+#rPendientes .tj-nombre span:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#rPendientes .der { display: flex; align-items: center; gap: 8px; flex: none; }
+#rPendientes .hecho { padding: 0; width: 34px; color: var(--ok); font-weight: 700; }
 .chip { border: 1px solid var(--line); background: var(--bg); border-radius: 999px; padding: 4px 10px; font-size: 12px; }
 .chip[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
 
@@ -495,6 +500,23 @@ body::after { right: 0; transform: scaleY(-1); }
         <p class="hint" id="pNota"></p>
       </section>
       <div class="col">
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Pendientes</h2>
+            <button class="chip" type="button" id="rpAgregar">+ Agregar</button>
+          </div>
+          <form class="form-edit" id="rpForm" novalidate hidden>
+            <div class="campo ancho"><label for="rpTexto">Qué tienes pendiente</label><input id="rpTexto" maxlength="80"></div>
+            <div class="campo"><label for="rpMonto">Monto S/ (opcional)</label><input id="rpMonto" type="number" step="0.01" min="0.01" inputmode="decimal"></div>
+            <div class="campo"><label for="rpFecha">Fecha (opcional)</label><input id="rpFecha" type="date"></div>
+            <p class="msg err ancho" id="rpMsg" role="status"></p>
+            <div class="botones">
+              <button type="button" class="btn" id="rpCancelar">Cancelar</button>
+              <button type="submit" class="btn primary">Guardar</button>
+            </div>
+          </form>
+          <ul class="filas" id="rPendientes"></ul>
+        </section>
         <section class="panel">
           <div class="panel-head">
             <h2>Próximos pagos</h2>
@@ -973,6 +995,7 @@ body::after { right: 0; transform: scaleY(-1); }
     verCapa4: false, // ventana con el calendario de la capa 4
     porConfirmar: [], // gastos que dejo el agente; no cuentan en los saldos hasta confirmarlos
     verConfirmar: false,
+    recordatorios: [], // pendientes libres del Resumen: { id, texto, monto (S/, 0 = sin monto), fecha ('' = sin fecha) }
     c4Anio: 0, c4Ciclo: null, // año a la vista y ciclo tocado ('2027-01': el que empieza en enero)
     recibir: null, // 'yape' o 'plin': ventana para registrar lo que llega de la Cuenta sueldo
     pagados: {}, // estados de cuenta pagados antes de su fecha: 'tarjeta|fechaDePago' -> dia del pago
@@ -1459,6 +1482,23 @@ body::after { right: 0; transform: scaleY(-1); }
     });
   }
 
+  // Pendientes libres: ambar hasta su fecha, rojo si ya paso. Sin fecha van al final.
+  function renderRecordatorios() {
+    var ul = $('rPendientes'), hoyS = ymd(new Date());
+    ul.textContent = '';
+    var lista = state.recordatorios.slice().sort(function (a, b) { return (a.fecha || '9') < (b.fecha || '9') ? -1 : 1; });
+    if (!lista.length) { ul.appendChild(h('li', {}, h('span', { class: 'hint', text: 'Nada pendiente.' }))); return; }
+    lista.forEach(function (r) {
+      var tarde = r.fecha && r.fecha < hoyS;
+      ul.appendChild(h('li', {},
+        h('span', { class: 'tj-nombre' }, h('span', { class: 'dot', style: '--c: var(--' + (tarde ? 'danger' : 'warn') + ')' }),
+          h('span', { title: r.texto, text: (r.fecha ? (tarde ? 'Atrasado' : fmtDia.format(deYmd(r.fecha))) + ' · ' : '') + r.texto })),
+        h('span', { class: 'der' },
+          r.monto ? h('span', { class: 'num', text: r.monto >= 1000 ? dineroCorto(r.monto, 'PEN') : dinero(r.monto, 'PEN') }) : null,
+          h('button', { class: 'btn pagar hecho', type: 'button', 'data-id': r.id, title: 'Marcar como hecho', 'aria-label': 'Marcar como hecho', text: '✓' }))));
+    });
+  }
+
   // Ultimos 6 periodos con su gasto por capa. Se salta los anteriores a tus primeros datos, porque saldrian incompletos
   function periodosCapas(ini) {
     var inicio = state.gastos.reduce(function (m, g) { var f = fechaCiclo(g); return !m || f < m ? f : m; }, ''), r = [];
@@ -1517,6 +1557,7 @@ body::after { right: 0; transform: scaleY(-1); }
     $('pNota').textContent = 'Periodo ' + fmtDia.format(p.ini) + ' – ' + fmtDia.format(fin) + ' (día ' + transcurridos + ' de ' + totalDias + '). ' +
       'Proyección: capa 1 como en tus periodos anteriores; capa 2 igual hasta el día 10 y luego a tu ritmo; capa 3 a tu ritmo. Tipo de cambio: S/ ' + c.tc + ' por dólar.';
     renderPagos($('rPagos'), pend.slice(0, 5), true);
+    renderRecordatorios();
 
     var col = colchon(), costo = pm[1] + pm[2] + pm[3] + pm[4];
     var pctCol = col.tope > 0 ? Math.max(0, col.saldo) / col.tope * 100 : 0;
@@ -2137,7 +2178,7 @@ body::after { right: 0; transform: scaleY(-1); }
   }
   function datosActuales() {
     return { ingresos: state.ingresos, cuentas: state.cuentas, previstos: PREVISTOS, ingresoFijo: INGRESO_FIJO,
-      topes: { capa3: TOPE_CAPA3, restaurantes: TOPE_RESTAURANTES }, tc: state.config.tc, pagados: state.pagados };
+      topes: { capa3: TOPE_CAPA3, restaurantes: TOPE_RESTAURANTES }, tc: state.config.tc, pagados: state.pagados, recordatorios: state.recordatorios };
   }
   function aplicarDatos(d) {
     var topes = d.topes || {};
@@ -2151,6 +2192,7 @@ body::after { right: 0; transform: scaleY(-1); }
     TOPE_RESTAURANTES = topes.restaurantes || 0;
     state.config.tc = d.tc > 0 ? d.tc : CONFIG_DEF.tc;
     state.pagados = d.pagados || {};
+    state.recordatorios = d.recordatorios || [];
   }
   // Se llama al final de cada render: si algo cambio, lo sube. Solo con la nube ya cargada,
   // para no pisar tus datos con un estado vacio.
@@ -2670,6 +2712,31 @@ body::after { right: 0; transform: scaleY(-1); }
     avisoT = setTimeout(cerrarAviso, 8000);
   }
   $('avisoBtn').addEventListener('click', function () { var fn = deshacer; cerrarAviso(); fn(); });
+
+  $('rpAgregar').addEventListener('click', function () {
+    var f = $('rpForm');
+    f.hidden = !f.hidden;
+    if (!f.hidden) $('rpTexto').focus();
+  });
+  $('rpCancelar').addEventListener('click', function () { $('rpForm').hidden = true; $('rpMsg').textContent = ''; });
+  $('rpForm').addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    var texto = $('rpTexto').value.trim().slice(0, 80), monto = Math.round(parseFloat($('rpMonto').value) * 100) / 100, fecha = $('rpFecha').value;
+    if (!texto) { $('rpMsg').textContent = 'Escribe qué tienes pendiente.'; $('rpTexto').focus(); return; }
+    state.recordatorios.push({ id: 'r' + Date.now(), texto: texto, monto: monto > 0 ? monto : 0, fecha: /^\d{4}-\d{2}-\d{2}$/.test(fecha) ? fecha : '' });
+    $('rpTexto').value = ''; $('rpMonto').value = ''; $('rpFecha').value = ''; $('rpMsg').textContent = '';
+    $('rpForm').hidden = true;
+    render();
+  });
+  $('rPendientes').addEventListener('click', function (ev) {
+    var b = ev.target.closest('.hecho');
+    if (!b) return;
+    var id = b.getAttribute('data-id'), r = state.recordatorios.filter(function (x) { return x.id === id; })[0];
+    if (!r) return;
+    state.recordatorios = state.recordatorios.filter(function (x) { return x !== r; });
+    render();
+    avisar('Pendiente cerrado.', function () { state.recordatorios.push(r); render(); });
+  });
 
   $('lista').addEventListener('click', function (ev) {
     var m = ev.target.closest('.mover');
